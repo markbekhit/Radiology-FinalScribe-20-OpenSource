@@ -73,12 +73,18 @@ function AppSidebar() {
 }
 
 function Router() {
+  const [location] = useLocation();
+
   return (
-    <Switch>
-      <Route path="/" component={DictationPage} />
-      <Route path="/admin" component={AdminPage} />
-      <Route component={NotFound} />
-    </Switch>
+    <>
+      <div className={location === "/" ? "contents" : "hidden"}>
+        <DictationPage />
+      </div>
+      <div className={location === "/admin" ? "contents" : "hidden"}>
+        <AdminPage />
+      </div>
+      {location !== "/" && location !== "/admin" && <NotFound />}
+    </>
   );
 }
 
