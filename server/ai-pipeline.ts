@@ -186,7 +186,12 @@ Respond in JSON format where each key is the section key and the value is the re
   });
 
   const content = response.choices[0]?.message?.content || "{}";
-  return JSON.parse(content);
+  const parsed = JSON.parse(content);
+  const result: Record<string, string> = {};
+  for (const [key, value] of Object.entries(parsed)) {
+    result[key] = typeof value === "string" ? value : JSON.stringify(value);
+  }
+  return result;
 }
 
 export async function generateImpressions(
