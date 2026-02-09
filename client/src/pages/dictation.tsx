@@ -525,8 +525,14 @@ export default function DictationPage() {
               {phaseLabels[phase]}
             </Badge>
           )}
+          {showReport && (
+            <Button variant="destructive" size="sm" onClick={copyReport} data-testid="button-copy-report">
+              {copied ? <Check className="w-4 h-4 mr-1" /> : <Copy className="w-4 h-4 mr-1" />}
+              {copied ? "Copied" : "Copy Report"}
+            </Button>
+          )}
           {phase === "complete" && (
-            <Button variant="outline" size="sm" onClick={resetDictation} data-testid="button-new-dictation">
+            <Button size="sm" className="bg-green-600 text-white border-green-700" onClick={resetDictation} data-testid="button-new-dictation">
               New Dictation
             </Button>
           )}
@@ -685,16 +691,6 @@ export default function DictationPage() {
 
           {showReport && displayTemplate && (
             <div className="space-y-2">
-              <Button
-                onClick={copyReport}
-                variant="destructive"
-                className="w-full font-semibold"
-                data-testid="button-copy-report"
-              >
-                {copied ? <Check className="w-5 h-5 mr-2" /> : <Copy className="w-5 h-5 mr-2" />}
-                {copied ? "Copied to Clipboard" : "Copy Report"}
-              </Button>
-
               <div className="flex items-center gap-2 px-1">
                 <ClipboardCheck className="w-4 h-4 text-primary" />
                 <h2 className="font-semibold text-sm">
