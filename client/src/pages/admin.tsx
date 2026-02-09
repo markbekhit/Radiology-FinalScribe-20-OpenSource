@@ -16,7 +16,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
-import { Settings, Plus, Pencil, Trash2, FileText, Sparkles, GripVertical, X, Loader2 } from "lucide-react";
+import { Settings, Plus, Pencil, Trash2, FileText, Sparkles, GripVertical, X, Loader2, ChevronUp, ChevronDown } from "lucide-react";
 import type { Template, AiPrompt, TemplateSection } from "@shared/schema";
 
 const sectionSchema = z.object({
@@ -236,6 +236,17 @@ function TemplateForm({ template, onClose }: { template: Template | null; onClos
     );
   };
 
+  const moveSection = (idx: number, direction: "up" | "down") => {
+    const current = [...form.getValues("sections")];
+    const targetIdx = direction === "up" ? idx - 1 : idx + 1;
+    if (targetIdx < 0 || targetIdx >= current.length) return;
+    [current[idx], current[targetIdx]] = [current[targetIdx], current[idx]];
+    form.setValue(
+      "sections",
+      current.map((s, i) => ({ ...s, order: i }))
+    );
+  };
+
   const handleSubmit = form.handleSubmit((data) => {
     mutation.mutate(data);
   });
@@ -320,7 +331,30 @@ function TemplateForm({ template, onClose }: { template: Template | null; onClos
               <Card key={idx} className="p-3 space-y-3">
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-2">
-                    <GripVertical className="w-4 h-4 text-muted-foreground" />
+                    <div className="flex flex-col">
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="ghost"
+                        className="h-5 w-5"
+                        disabled={idx === 0}
+                        onClick={() => moveSection(idx, "up")}
+                        data-testid={`button-move-section-up-${idx}`}
+                      >
+                        <ChevronUp className="w-3 h-3" />
+                      </Button>
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="ghost"
+                        className="h-5 w-5"
+                        disabled={idx === sections.length - 1}
+                        onClick={() => moveSection(idx, "down")}
+                        data-testid={`button-move-section-down-${idx}`}
+                      >
+                        <ChevronDown className="w-3 h-3" />
+                      </Button>
+                    </div>
                     <span className="text-xs text-muted-foreground">Section {idx + 1}</span>
                   </div>
                   {sections.length > 1 && (
