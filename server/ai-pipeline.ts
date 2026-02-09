@@ -168,7 +168,8 @@ Rules:
 - Be concise but thorough
 - Do not add sections not in the template
 
-Respond in JSON format where each key is the section key and the value is the report text for that section.`;
+Respond in JSON format where each key is the section key and the value is a plain text string for that section.
+IMPORTANT: Each value MUST be a plain string, NOT a nested object. Example: {"findings": "Normal alignment."} NOT {"findings": {"name": "Findings", "normalText": "Normal alignment."}}`;
 
   const templateContext = `\n\nTemplate: ${template.name} (${template.modality})\nSections to fill:\n${JSON.stringify(sectionDescriptions, null, 2)}`;
   const prompt = customPrompt
@@ -189,7 +190,14 @@ Respond in JSON format where each key is the section key and the value is the re
   const parsed = JSON.parse(content);
   const result: Record<string, string> = {};
   for (const [key, value] of Object.entries(parsed)) {
-    result[key] = typeof value === "string" ? value : JSON.stringify(value);
+    if (typeof value === "string") {
+      result[key] = value;
+    } else if (value && typeof value === "object") {
+      const obj = value as Record<string, unknown>;
+      result[key] = String(obj.normalText || obj.text || obj.content || obj.value || obj.report || "");
+    } else {
+      result[key] = String(value ?? "");
+    }
   }
   return result;
 }

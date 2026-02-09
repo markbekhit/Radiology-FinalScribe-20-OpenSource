@@ -29,11 +29,21 @@ const SILENCE_THRESHOLD = 0.015;
 const SILENCE_DURATION_MS = 600;
 const MIN_CHUNK_DURATION_MS = 800;
 
+function extractText(val: unknown): string {
+  if (typeof val === "string") return val;
+  if (val && typeof val === "object") {
+    const obj = val as Record<string, unknown>;
+    return String(obj.normalText || obj.text || obj.content || obj.value || obj.report || "");
+  }
+  return String(val ?? "");
+}
+
 function buildMergedReport(report: Record<string, string>, impressionsText: string, template: Template | null | undefined) {
   const sections = (template?.sections as Array<{ name: string; key: string }>) || [];
   let text = "";
   for (const section of sections) {
-    const val = String(report[section.key] ?? "");
+    const raw = report[section.key];
+    const val = extractText(raw);
     if (val) {
       text += `${section.name.toUpperCase()}:\n${val}\n\n`;
     }
