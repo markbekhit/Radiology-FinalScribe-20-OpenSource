@@ -709,10 +709,10 @@ export default function DictationPage() {
                       {section.name}
                     </label>
                     <Textarea
-                      value={editableReport[section.key] || ""}
+                      value={String(editableReport[section.key] ?? "")}
                       onChange={(e) => handleSectionEdit(section.key, e.target.value)}
                       className="resize-none border-0 bg-transparent text-sm focus-visible:ring-0 font-mono"
-                      rows={Math.max(1, (editableReport[section.key] || "").split("\n").length)}
+                      rows={Math.max(1, String(editableReport[section.key] ?? "").split("\n").length)}
                       data-testid={`textarea-section-${section.key}`}
                     />
                   </div>
@@ -727,7 +727,7 @@ export default function DictationPage() {
                   value={editableImpressions}
                   onChange={(e) => setEditableImpressions(e.target.value)}
                   className="resize-none border-0 bg-transparent text-sm focus-visible:ring-0 font-mono"
-                  rows={Math.max(1, editableImpressions.split("\n").length)}
+                  rows={Math.max(1, String(editableImpressions || "").split("\n").length)}
                   data-testid="textarea-impressions"
                 />
               </div>
