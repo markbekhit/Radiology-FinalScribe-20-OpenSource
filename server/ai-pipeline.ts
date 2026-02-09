@@ -170,7 +170,10 @@ Rules:
 
 Respond in JSON format where each key is the section key and the value is the report text for that section.`;
 
-  const prompt = customPrompt || defaultPrompt;
+  const templateContext = `\n\nTemplate: ${template.name} (${template.modality})\nSections to fill:\n${JSON.stringify(sectionDescriptions, null, 2)}`;
+  const prompt = customPrompt
+    ? `${customPrompt}${templateContext}`
+    : defaultPrompt;
 
   const response = await openai.chat.completions.create({
     model: "gpt-4o",
@@ -204,7 +207,9 @@ Rules:
 - Focus on actionable findings
 - If all findings are normal, state that clearly`;
 
-  const prompt = customPrompt || defaultPrompt;
+  const prompt = customPrompt
+    ? `${customPrompt}\n\nTemplate: ${template.name} (${template.modality})`
+    : defaultPrompt;
 
   const response = await openai.chat.completions.create({
     model: "gpt-4o",
