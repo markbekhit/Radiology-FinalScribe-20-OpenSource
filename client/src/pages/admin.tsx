@@ -16,7 +16,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
-import { Settings, Plus, Pencil, Trash2, FileText, Sparkles, GripVertical, X } from "lucide-react";
+import { Settings, Plus, Pencil, Trash2, FileText, Sparkles, GripVertical, X, Loader2 } from "lucide-react";
 import type { Template, AiPrompt, TemplateSection } from "@shared/schema";
 
 const sectionSchema = z.object({
