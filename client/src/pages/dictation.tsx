@@ -16,7 +16,7 @@ type PipelinePhase = "idle" | "recording" | "transcribing" | "identifying" | "ma
 const phaseLabels: Record<PipelinePhase, string> = {
   idle: "Ready",
   recording: "Recording...",
-  transcribing: "Phase 1: Transcribing audio...",
+  transcribing: "Finalizing transcription...",
   identifying: "Phase 2: Identifying region & template...",
   mapping: "Phase 3: Mapping to structured report...",
   impressions: "Generating impressions...",
@@ -24,7 +24,9 @@ const phaseLabels: Record<PipelinePhase, string> = {
   error: "Error occurred",
 };
 
-const CHUNK_INTERVAL_MS = 5000;
+const SILENCE_THRESHOLD = 0.015;
+const SILENCE_DURATION_MS = 600;
+const MIN_CHUNK_DURATION_MS = 800;
 
 export default function DictationPage() {
   const { toast } = useToast();
@@ -41,14 +43,20 @@ export default function DictationPage() {
   const [isRecording, setIsRecording] = useState(false);
   const [matchedTemplate, setMatchedTemplate] = useState<Template | null>(null);
   const [chunksPending, setChunksPending] = useState(0);
+  const [audioLevel, setAudioLevel] = useState(0);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const chunksRef = useRef<Blob[]>([]);
-  const segmentIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const vadFrameRef = useRef<number | null>(null);
+  const silenceStartRef = useRef<number | null>(null);
+  const chunkStartTimeRef = useRef<number>(0);
+  const isSpeakingRef = useRef(false);
   const transcriptSegmentsRef = useRef<string[]>([]);
   const isRecordingRef = useRef(false);
   const pendingCountRef = useRef(0);
+  const finalStopResolveRef = useRef<(() => void) | null>(null);
 
   const { data: templates = [], isLoading: templatesLoading } = useQuery<Template[]>({
     queryKey: ["/api/templates"],
@@ -90,15 +98,6 @@ export default function DictationPage() {
     }
   }, []);
 
-  const collectSegment = useCallback(() => {
-    const recorder = mediaRecorderRef.current;
-    if (!recorder || recorder.state !== "recording") return;
-
-    recorder.stop();
-  }, []);
-
-  const finalStopResolveRef = useRef<(() => void) | null>(null);
-
   const startNewRecorder = useCallback((stream: MediaStream) => {
     const recorder = new MediaRecorder(stream, { mimeType: "audio/webm;codecs=opus" });
     const localChunks: Blob[] = [];
@@ -108,7 +107,6 @@ export default function DictationPage() {
     recorder.ondataavailable = (e) => {
       if (e.data.size > 0) {
         localChunks.push(e.data);
-        chunksRef.current.push(e.data);
       }
     };
 
@@ -118,25 +116,81 @@ export default function DictationPage() {
 
       if (isRecordingRef.current && streamRef.current) {
         startNewRecorder(streamRef.current);
-      } else {
-        if (finalStopResolveRef.current) {
-          finalStopResolveRef.current();
-          finalStopResolveRef.current = null;
-        }
+      } else if (finalStopResolveRef.current) {
+        finalStopResolveRef.current();
+        finalStopResolveRef.current = null;
       }
     };
 
     recorder.start(100);
     mediaRecorderRef.current = recorder;
+    chunkStartTimeRef.current = Date.now();
   }, [sendChunkForTranscription]);
+
+  const finalizeCurrentChunk = useCallback(() => {
+    const recorder = mediaRecorderRef.current;
+    if (!recorder || recorder.state !== "recording") return;
+
+    const chunkDuration = Date.now() - chunkStartTimeRef.current;
+    if (chunkDuration < MIN_CHUNK_DURATION_MS) return;
+
+    recorder.stop();
+  }, []);
+
+  const runVAD = useCallback(() => {
+    const analyser = analyserRef.current;
+    if (!analyser || !isRecordingRef.current) return;
+
+    const dataArray = new Float32Array(analyser.fftSize);
+    analyser.getFloatTimeDomainData(dataArray);
+
+    let sumSquares = 0;
+    for (let i = 0; i < dataArray.length; i++) {
+      sumSquares += dataArray[i] * dataArray[i];
+    }
+    const rms = Math.sqrt(sumSquares / dataArray.length);
+
+    setAudioLevel(Math.min(rms * 5, 1));
+
+    const now = Date.now();
+
+    if (rms < SILENCE_THRESHOLD) {
+      if (silenceStartRef.current === null) {
+        silenceStartRef.current = now;
+      } else if (now - silenceStartRef.current >= SILENCE_DURATION_MS) {
+        if (isSpeakingRef.current) {
+          isSpeakingRef.current = false;
+          finalizeCurrentChunk();
+          silenceStartRef.current = now;
+        }
+      }
+    } else {
+      silenceStartRef.current = null;
+      if (!isSpeakingRef.current) {
+        isSpeakingRef.current = true;
+      }
+    }
+
+    vadFrameRef.current = requestAnimationFrame(runVAD);
+  }, [finalizeCurrentChunk]);
 
   const startRecording = useCallback(async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
-      chunksRef.current = [];
       transcriptSegmentsRef.current = [];
       isRecordingRef.current = true;
+      isSpeakingRef.current = false;
+      silenceStartRef.current = null;
+
+      const audioCtx = new AudioContext();
+      const source = audioCtx.createMediaStreamSource(stream);
+      const analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 2048;
+      analyser.smoothingTimeConstant = 0.3;
+      source.connect(analyser);
+      audioContextRef.current = audioCtx;
+      analyserRef.current = analyser;
 
       startNewRecorder(stream);
 
@@ -150,22 +204,27 @@ export default function DictationPage() {
       setEditableImpressions("");
       setCurrentDictation(null);
       setMatchedTemplate(null);
+      setAudioLevel(0);
 
-      segmentIntervalRef.current = setInterval(() => {
-        collectSegment();
-      }, CHUNK_INTERVAL_MS);
+      vadFrameRef.current = requestAnimationFrame(runVAD);
     } catch {
       toast({ title: "Microphone access denied", description: "Please allow microphone access to record dictations.", variant: "destructive" });
     }
-  }, [toast, startNewRecorder, collectSegment]);
+  }, [toast, startNewRecorder, runVAD]);
 
   const stopRecording = useCallback((): Promise<void> => {
     return new Promise((resolve) => {
       isRecordingRef.current = false;
 
-      if (segmentIntervalRef.current) {
-        clearInterval(segmentIntervalRef.current);
-        segmentIntervalRef.current = null;
+      if (vadFrameRef.current) {
+        cancelAnimationFrame(vadFrameRef.current);
+        vadFrameRef.current = null;
+      }
+
+      if (audioContextRef.current) {
+        audioContextRef.current.close().catch(() => {});
+        audioContextRef.current = null;
+        analyserRef.current = null;
       }
 
       const recorder = mediaRecorderRef.current;
@@ -176,6 +235,7 @@ export default function DictationPage() {
             streamRef.current = null;
           }
           setIsRecording(false);
+          setAudioLevel(0);
           resolve();
         };
         recorder.stop();
@@ -185,6 +245,7 @@ export default function DictationPage() {
           streamRef.current = null;
         }
         setIsRecording(false);
+        setAudioLevel(0);
         resolve();
       }
     });
@@ -192,7 +253,8 @@ export default function DictationPage() {
 
   useEffect(() => {
     return () => {
-      if (segmentIntervalRef.current) clearInterval(segmentIntervalRef.current);
+      if (vadFrameRef.current) cancelAnimationFrame(vadFrameRef.current);
+      if (audioContextRef.current) audioContextRef.current.close().catch(() => {});
       if (streamRef.current) streamRef.current.getTracks().forEach((t) => t.stop());
     };
   }, []);
@@ -430,9 +492,23 @@ export default function DictationPage() {
                   </button>
                 </div>
 
+                {isRecording && (
+                  <div className="flex items-center gap-2 w-full max-w-xs" data-testid="audio-level-meter">
+                    <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-red-500 rounded-full transition-all duration-75"
+                        style={{ width: `${audioLevel * 100}%` }}
+                      />
+                    </div>
+                    <span className="text-[10px] text-muted-foreground font-mono w-8 text-right">
+                      {isSpeakingRef.current ? "VOX" : "---"}
+                    </span>
+                  </div>
+                )}
+
                 <p className="text-sm text-muted-foreground text-center max-w-md">
                   {isRecording
-                    ? "Recording... Tap to stop and process"
+                    ? "Recording... Chunks sent on natural pauses"
                     : isProcessing
                       ? phaseLabels[phase]
                       : "Tap to start recording your radiology dictation"}
