@@ -7,7 +7,7 @@ import { writeFile, unlink, readFile } from "fs/promises";
 import { randomUUID } from "crypto";
 import { tmpdir } from "os";
 import { join } from "path";
-import { transcribeAudio, correctTranscript, applyVoiceEdit, identifyRegionAndTemplate, mapToStructuredReport, generateImpressions } from "./ai-pipeline";
+import { transcribeAudio, correctTranscript, applyVoiceEdit, identifyRegionAndTemplate, mapToStructuredReport, generateImpressions, generateFreeformReport } from "./ai-pipeline";
 import { insertTemplateSchema, insertAiPromptSchema } from "@shared/schema";
 import type { TemplateSection } from "@shared/schema";
 
@@ -304,47 +304,54 @@ export async function registerRoutes(
         }
       }
 
-      if (!matchedTemplate && activeTemplates.length > 0) {
-        matchedTemplate = activeTemplates[0];
+      if (matchedTemplate) {
+        send({ type: "template_matched", template: matchedTemplate });
+        await storage.updateDictation(dictation.id, { templateId: matchedTemplate.id });
+
+        // PHASE 3: Structured mapping
+        send({ type: "phase", phase: "mapping" });
+        const mappingPrompt = await storage.getPromptByType("structured_mapping");
+        const structuredReport = await mapToStructuredReport(
+          correctedTranscription,
+          matchedTemplate,
+          mappingPrompt?.content
+        );
+        send({ type: "structured_report", data: structuredReport });
+
+        await storage.updateDictation(dictation.id, {
+          structuredReport,
+          status: "mapped",
+        });
+
+        // PHASE 4: Auto impressions
+        send({ type: "phase", phase: "impressions" });
+        const impressionsPrompt = await storage.getPromptByType("impressions");
+        const impressionsText = await generateImpressions(
+          structuredReport,
+          matchedTemplate,
+          impressionsPrompt?.content
+        );
+        send({ type: "impressions", data: impressionsText });
+
+        await storage.updateDictation(dictation.id, {
+          impressions: impressionsText,
+          status: "complete",
+        });
+      } else {
+        // No matching template — generate freeform report from scratch
+        const identifiedRegion = (await storage.getDictation(dictation.id))?.identifiedRegion || "Unknown";
+        send({ type: "template_matched", template: null, region: identifiedRegion });
+
+        send({ type: "phase", phase: "mapping" });
+        const freeform = await generateFreeformReport(correctedTranscription, identifiedRegion);
+
+        send({ type: "freeform_report", data: freeform.reportText, impressions: freeform.impressions });
+
+        await storage.updateDictation(dictation.id, {
+          impressions: freeform.impressions,
+          status: "complete",
+        });
       }
-
-      if (!matchedTemplate) {
-        send({ type: "error", message: "No template available. Please create a template in the Admin Center." });
-        return res.end();
-      }
-
-      send({ type: "template_matched", template: matchedTemplate });
-      await storage.updateDictation(dictation.id, { templateId: matchedTemplate.id });
-
-      // PHASE 3: Structured mapping
-      send({ type: "phase", phase: "mapping" });
-      const mappingPrompt = await storage.getPromptByType("structured_mapping");
-      const structuredReport = await mapToStructuredReport(
-        correctedTranscription,
-        matchedTemplate,
-        mappingPrompt?.content
-      );
-      send({ type: "structured_report", data: structuredReport });
-
-      await storage.updateDictation(dictation.id, {
-        structuredReport,
-        status: "mapped",
-      });
-
-      // PHASE 4: Auto impressions
-      send({ type: "phase", phase: "impressions" });
-      const impressionsPrompt = await storage.getPromptByType("impressions");
-      const impressionsText = await generateImpressions(
-        structuredReport,
-        matchedTemplate,
-        impressionsPrompt?.content
-      );
-      send({ type: "impressions", data: impressionsText });
-
-      await storage.updateDictation(dictation.id, {
-        impressions: impressionsText,
-        status: "complete",
-      });
 
       const finalDictation = await storage.getDictation(dictation.id);
       send({ type: "dictation", data: finalDictation });
@@ -368,6 +375,8 @@ export async function registerRoutes(
       const activeTemplates = allTemplates.filter((t) => t.isActive);
 
       let matchedTemplate;
+      let identifiedRegion = "Unknown";
+
       if (preSelectedTemplateId) {
         matchedTemplate = await storage.getTemplate(preSelectedTemplateId);
       } else {
@@ -377,34 +386,32 @@ export async function registerRoutes(
           activeTemplates,
           regionPrompt?.content
         );
+        identifiedRegion = identification.region || "Unknown";
         if (identification.templateId) {
           matchedTemplate = await storage.getTemplate(identification.templateId);
         }
       }
 
-      if (!matchedTemplate && activeTemplates.length > 0) {
-        matchedTemplate = activeTemplates[0];
+      if (matchedTemplate) {
+        const mappingPrompt = await storage.getPromptByType("structured_mapping");
+        const structuredReport = await mapToStructuredReport(
+          transcription,
+          matchedTemplate,
+          mappingPrompt?.content
+        );
+
+        const impressionsPrompt = await storage.getPromptByType("impressions");
+        const impressionsText = await generateImpressions(
+          structuredReport,
+          matchedTemplate,
+          impressionsPrompt?.content
+        );
+
+        res.json({ template: matchedTemplate, structuredReport, impressions: impressionsText });
+      } else {
+        const freeform = await generateFreeformReport(transcription, identifiedRegion);
+        res.json({ template: null, region: identifiedRegion, freeformReport: freeform.reportText, impressions: freeform.impressions });
       }
-
-      if (!matchedTemplate) {
-        return res.status(400).json({ error: "No template available" });
-      }
-
-      const mappingPrompt = await storage.getPromptByType("structured_mapping");
-      const structuredReport = await mapToStructuredReport(
-        transcription,
-        matchedTemplate,
-        mappingPrompt?.content
-      );
-
-      const impressionsPrompt = await storage.getPromptByType("impressions");
-      const impressionsText = await generateImpressions(
-        structuredReport,
-        matchedTemplate,
-        impressionsPrompt?.content
-      );
-
-      res.json({ template: matchedTemplate, structuredReport, impressions: impressionsText });
     } catch (error: any) {
       console.error("Remap error:", error);
       res.status(500).json({ error: error.message || "Remap failed" });

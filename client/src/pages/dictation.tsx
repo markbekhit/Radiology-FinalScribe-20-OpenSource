@@ -76,6 +76,7 @@ export default function DictationPage() {
   const [isRemapping, setIsRemapping] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [transcriptEdited, setTranscriptEdited] = useState(false);
+  const [freeformRegion, setFreeformRegion] = useState<string | null>(null);
   const voiceEditRecorderRef = useRef<MediaRecorder | null>(null);
   const voiceEditStreamRef = useRef<MediaStream | null>(null);
 
@@ -383,10 +384,20 @@ export default function DictationPage() {
                 setCorrectedTranscription(event.data);
                 break;
               case "template_matched":
-                setMatchedTemplate(event.template);
+                setMatchedTemplate(event.template || null);
+                if (!event.template && event.region) {
+                  setFreeformRegion(event.region);
+                } else {
+                  setFreeformRegion(null);
+                }
                 break;
               case "structured_report":
                 setStructuredReport(event.data);
+                break;
+              case "freeform_report":
+                setFullReportText(event.data);
+                setImpressions(event.impressions || "");
+                setStructuredReport({});
                 break;
               case "impressions":
                 setImpressions(event.data);
@@ -547,12 +558,22 @@ export default function DictationPage() {
         body.preSelectedTemplateId = Number(selectedTemplateId);
       }
       const res = await apiRequest("POST", "/api/dictations/remap", body);
-      const { template, structuredReport: newReport, impressions: newImpressions } = await res.json();
-      setMatchedTemplate(template);
-      setStructuredReport(newReport);
-      setImpressions(newImpressions);
-      const merged = buildMergedReport(newReport, newImpressions, template);
-      setFullReportText(merged);
+      const result = await res.json();
+
+      if (result.template) {
+        setMatchedTemplate(result.template);
+        setFreeformRegion(null);
+        setStructuredReport(result.structuredReport);
+        setImpressions(result.impressions);
+        const merged = buildMergedReport(result.structuredReport, result.impressions, result.template);
+        setFullReportText(merged);
+      } else {
+        setMatchedTemplate(null);
+        setFreeformRegion(result.region || "Unknown");
+        setStructuredReport({});
+        setImpressions(result.impressions);
+        setFullReportText(result.freeformReport);
+      }
       setTranscriptEdited(false);
       toast({ title: "Report regenerated from edited transcript" });
     } catch (err: any) {
@@ -572,6 +593,7 @@ export default function DictationPage() {
     setFullReportText("");
     setCurrentDictation(null);
     setMatchedTemplate(null);
+    setFreeformRegion(null);
     setLastEditInstruction("");
     setIsPaused(false);
     setTranscriptEdited(false);
@@ -580,6 +602,11 @@ export default function DictationPage() {
   const isProcessing = phase !== "idle" && phase !== "complete" && phase !== "error" && phase !== "recording";
   const showReport = phase === "complete" || fullReportText.length > 0;
   const displayTemplate = matchedTemplate || activeTemplates.find((t) => t.id.toString() === selectedTemplateId);
+  const reportTitle = displayTemplate
+    ? `${displayTemplate.name} ${displayTemplate.modality} Report`
+    : freeformRegion
+      ? `${freeformRegion} Report`
+      : "Report";
 
   return (
     <div className="flex flex-col h-full">
@@ -794,13 +821,13 @@ export default function DictationPage() {
             </Card>
           )}
 
-          {showReport && displayTemplate && (
+          {showReport && (displayTemplate || freeformRegion) && (
             <Card className="p-3 space-y-2">
               <div className="flex items-center justify-between gap-4 flex-wrap">
                 <div className="flex items-center gap-2">
                   <ClipboardCheck className="w-4 h-4 text-primary" />
                   <h2 className="font-semibold text-sm">
-                    {displayTemplate.name} {displayTemplate.modality} Report
+                    {reportTitle}
                   </h2>
                 </div>
                 <div className="flex items-center gap-2">

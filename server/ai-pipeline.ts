@@ -202,6 +202,61 @@ IMPORTANT: Each value MUST be a plain string, NOT a nested object. Example: {"fi
   return result;
 }
 
+export async function generateFreeformReport(
+  transcription: string,
+  region: string,
+  customPrompt?: string
+): Promise<{ reportText: string; impressions: string }> {
+  if (!process.env.OPENAI_API_KEY) {
+    throw new Error("OPENAI_API_KEY is not configured. Please set it in Secrets.");
+  }
+
+  const defaultPrompt = `You are a radiology AI assistant specializing in MSK (Musculoskeletal) radiology reporting.
+No structured template is available for the identified region: "${region}".
+Generate a complete, professional radiology report from scratch based on the dictation transcript.
+
+Rules:
+- Use telegram-style reporting: concise, structured, professional medical language
+- Create appropriate section headings for this body part/region
+- Use proper medical terminology and anatomical accuracy
+- Be concise but thorough
+- Format the report with section headings in UPPERCASE followed by a colon and the content
+- At the end, include an IMPRESSION section summarizing key findings
+
+Respond in JSON format:
+{
+  "sections": { "SECTION_NAME": "section content", ... },
+  "impressions": "concise clinical impression"
+}`;
+
+  const prompt = customPrompt || defaultPrompt;
+
+  const response = await openai.chat.completions.create({
+    model: "gpt-4o",
+    messages: [
+      { role: "system", content: prompt },
+      { role: "user", content: `Transcription: "${transcription}"\nIdentified Region: "${region}"` },
+    ],
+    response_format: { type: "json_object" },
+    max_completion_tokens: 3000,
+  });
+
+  const content = response.choices[0]?.message?.content || "{}";
+  const parsed = JSON.parse(content);
+
+  const sections = parsed.sections || {};
+  let reportText = "";
+  for (const [heading, text] of Object.entries(sections)) {
+    const val = typeof text === "string" ? text : String(text ?? "");
+    reportText += `${heading.toUpperCase()}:\n${val}\n\n`;
+  }
+
+  const impressions = parsed.impressions || "Unable to generate impressions.";
+  reportText += `IMPRESSION:\n${impressions}`;
+
+  return { reportText: reportText.trimEnd(), impressions };
+}
+
 export async function generateImpressions(
   structuredReport: Record<string, string>,
   template: Template,
