@@ -17,7 +17,7 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-export async function transcribeAudio(audioBuffer: Buffer): Promise<string> {
+export async function transcribeAudio(audioBuffer: Buffer, whisperPrompt?: string): Promise<string> {
   if (!process.env.GROQ_API_KEY) {
     throw new Error("GROQ_API_KEY is not configured. Please set it in Secrets.");
   }
@@ -28,6 +28,7 @@ export async function transcribeAudio(audioBuffer: Buffer): Promise<string> {
     model: "whisper-large-v3-turbo",
     language: "en",
     response_format: "text",
+    ...(whisperPrompt ? { prompt: whisperPrompt } : {}),
   });
   return transcription as unknown as string;
 }

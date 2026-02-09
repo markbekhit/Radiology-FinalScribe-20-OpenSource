@@ -53,6 +53,14 @@ export async function seedDatabase() {
   await storage.createTemplate({ name: "Hip MRI", region: "Hip", modality: "MRI", sections: hipSections, isActive: true });
 
   await storage.createPrompt({
+    name: "Whisper Transcription Prompt",
+    promptType: "whisper_prompt",
+    content: `This is a structured MSK radiology report. Use medical terminology and standard punctuation. Recognize verbal commands like 'point', 'comma', 'new line', or 'period' as symbols. Terms include: MRI, CT, sagittal, axial, coronal, T1, T2, PD, bone marrow edema, osteochondral, enthesopathy, and anatomical structures like ACL, MCL, LCL, meniscus, or labrum. Maintain a concise, professional tone.`,
+    description: "Passed to Groq Whisper API as a transcription prompt to improve medical terminology recognition",
+    isActive: true,
+  });
+
+  await storage.createPrompt({
     name: "Region Identification",
     promptType: "region_identification",
     content: `You are a radiology AI assistant specializing in MSK (Musculoskeletal) radiology.

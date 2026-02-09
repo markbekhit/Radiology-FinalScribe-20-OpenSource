@@ -170,8 +170,11 @@ export async function registerRoutes(
         return res.json({ text: "" });
       }
 
+      const whisperPromptRecord = await storage.getPromptByType("whisper_prompt");
+      const whisperPrompt = whisperPromptRecord?.isActive ? whisperPromptRecord.content : undefined;
+
       const wavBuffer = await convertToWav(audioFile.buffer);
-      const text = await transcribeAudio(wavBuffer);
+      const text = await transcribeAudio(wavBuffer, whisperPrompt);
       res.json({ text: text.trim() });
     } catch (error: any) {
       console.error("Chunk transcription error:", error);
@@ -215,8 +218,10 @@ export async function registerRoutes(
         send({ type: "transcription", data: transcription });
       } else {
         send({ type: "phase", phase: "transcribing" });
+        const whisperPromptRecord = await storage.getPromptByType("whisper_prompt");
+        const whisperPrompt = whisperPromptRecord?.isActive ? whisperPromptRecord.content : undefined;
         const wavBuffer = await convertToWav(audioFile!.buffer);
-        transcription = await transcribeAudio(wavBuffer);
+        transcription = await transcribeAudio(wavBuffer, whisperPrompt);
         send({ type: "transcription", data: transcription });
       }
 
