@@ -116,7 +116,9 @@ Respond in JSON format:
   "confidence": <0-100 confidence score>
 }`;
 
-  const prompt = customPrompt || defaultPrompt;
+  const prompt = customPrompt
+    ? `${customPrompt}\n\nAvailable templates:\n${JSON.stringify(templateList, null, 2)}`
+    : defaultPrompt;
 
   const response = await openai.chat.completions.create({
     model: "gpt-4o",
