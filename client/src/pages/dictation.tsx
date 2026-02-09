@@ -8,7 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { Mic, MicOff, Square, Loader2, Copy, Check, Activity, ClipboardCheck, Sparkles } from "lucide-react";
+import { Mic, Square, Loader2, Copy, Check, Activity, ClipboardCheck, Sparkles } from "lucide-react";
 import type { Template, Dictation } from "@shared/schema";
 
 type PipelinePhase = "idle" | "recording" | "transcribing" | "correcting" | "identifying" | "mapping" | "impressions" | "complete" | "error";
@@ -46,8 +46,8 @@ export default function DictationPage() {
   const [matchedTemplate, setMatchedTemplate] = useState<Template | null>(null);
   const [chunksPending, setChunksPending] = useState(0);
   const [audioLevel, setAudioLevel] = useState(0);
-  const [isVoiceEditing, setIsVoiceEditing] = useState(false);
-  const [voiceEditProcessing, setVoiceEditProcessing] = useState(false);
+  const [voiceEditTarget, setVoiceEditTarget] = useState<string | null>(null);
+  const [voiceEditProcessingTarget, setVoiceEditProcessingTarget] = useState<string | null>(null);
   const [lastEditInstruction, setLastEditInstruction] = useState("");
   const voiceEditRecorderRef = useRef<MediaRecorder | null>(null);
   const voiceEditStreamRef = useRef<MediaStream | null>(null);
@@ -413,7 +413,20 @@ export default function DictationPage() {
     toast({ title: "Report copied to clipboard" });
   };
 
-  const startVoiceEdit = useCallback(async () => {
+  const getTextForTarget = useCallback((target: string): string => {
+    if (target === "corrected") return correctedTranscription;
+    if (target === "impressions") return editableImpressions;
+    return String(editableReport[target] ?? "");
+  }, [correctedTranscription, editableImpressions, editableReport]);
+
+  const applyEditResult = useCallback((target: string, text: string) => {
+    if (target === "corrected") setCorrectedTranscription(text);
+    else if (target === "impressions") setEditableImpressions(text);
+    else setEditableReport((prev) => ({ ...prev, [target]: text }));
+  }, []);
+
+  const startVoiceEdit = useCallback(async (target: string) => {
+    const currentText = getTextForTarget(target);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       voiceEditStreamRef.current = stream;
@@ -429,16 +442,16 @@ export default function DictationPage() {
           voiceEditStreamRef.current.getTracks().forEach((t) => t.stop());
           voiceEditStreamRef.current = null;
         }
-        setIsVoiceEditing(false);
+        setVoiceEditTarget(null);
 
         const blob = new Blob(chunks, { type: "audio/webm" });
         if (blob.size < 1000) return;
 
-        setVoiceEditProcessing(true);
+        setVoiceEditProcessingTarget(target);
         try {
           const formData = new FormData();
           formData.append("audio", blob, "voice-edit.webm");
-          formData.append("currentTranscript", correctedTranscription);
+          formData.append("currentTranscript", currentText);
 
           const res = await fetch("/api/dictations/voice-edit", {
             method: "POST",
@@ -451,22 +464,18 @@ export default function DictationPage() {
           }
 
           const { transcript, instruction } = await res.json();
-          if (instruction) {
-            setLastEditInstruction(instruction);
-          }
-          if (transcript) {
-            setCorrectedTranscription(transcript);
-          }
+          if (instruction) setLastEditInstruction(instruction);
+          if (transcript) applyEditResult(target, transcript);
         } catch (err: any) {
           toast({ title: "Voice edit failed", description: err.message, variant: "destructive" });
         } finally {
-          setVoiceEditProcessing(false);
+          setVoiceEditProcessingTarget(null);
         }
       };
 
       recorder.onerror = () => {
-        setIsVoiceEditing(false);
-        setVoiceEditProcessing(false);
+        setVoiceEditTarget(null);
+        setVoiceEditProcessingTarget(null);
         if (voiceEditStreamRef.current) {
           voiceEditStreamRef.current.getTracks().forEach((t) => t.stop());
           voiceEditStreamRef.current = null;
@@ -476,12 +485,12 @@ export default function DictationPage() {
 
       recorder.start();
       voiceEditRecorderRef.current = recorder;
-      setIsVoiceEditing(true);
+      setVoiceEditTarget(target);
       setLastEditInstruction("");
     } catch {
       toast({ title: "Microphone access denied", variant: "destructive" });
     }
-  }, [correctedTranscription, toast]);
+  }, [getTextForTarget, applyEditResult, toast]);
 
   const stopVoiceEdit = useCallback(() => {
     const recorder = voiceEditRecorderRef.current;
@@ -646,13 +655,13 @@ export default function DictationPage() {
                   <h3 className="text-sm font-medium text-primary uppercase tracking-wider">Corrected Transcription</h3>
                 </div>
                 <div className="flex items-center gap-2">
-                  {voiceEditProcessing && (
+                  {voiceEditProcessingTarget === "corrected" && (
                     <Badge variant="secondary">
                       <Loader2 className="w-3 h-3 animate-spin mr-1" />
                       Applying edit...
                     </Badge>
                   )}
-                  {isVoiceEditing && (
+                  {voiceEditTarget === "corrected" && (
                     <Badge variant="secondary" className="bg-red-600 text-white">
                       <div className="w-2 h-2 rounded-full bg-white animate-pulse mr-1.5" />
                       Listening...
@@ -660,12 +669,12 @@ export default function DictationPage() {
                   )}
                   <Button
                     size="icon"
-                    variant={isVoiceEditing ? "destructive" : "outline"}
-                    onClick={isVoiceEditing ? stopVoiceEdit : startVoiceEdit}
-                    disabled={voiceEditProcessing || isProcessing}
+                    variant={voiceEditTarget === "corrected" ? "destructive" : "outline"}
+                    onClick={voiceEditTarget === "corrected" ? stopVoiceEdit : () => startVoiceEdit("corrected")}
+                    disabled={voiceEditProcessingTarget !== null || isProcessing}
                     data-testid="button-voice-edit"
                   >
-                    {isVoiceEditing ? <Square className="w-4 h-4" fill="currentColor" /> : <Mic className="w-4 h-4" />}
+                    {voiceEditTarget === "corrected" ? <Square className="w-4 h-4" fill="currentColor" /> : <Mic className="w-4 h-4" />}
                   </Button>
                 </div>
               </div>
@@ -701,9 +710,29 @@ export default function DictationPage() {
               <div className="space-y-1">
                 {(displayTemplate.sections as Array<{ name: string; key: string }>).map((section) => (
                   <div key={section.key} className="px-1">
-                    <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
-                      {section.name}
-                    </label>
+                    <div className="flex items-center justify-between gap-2">
+                      <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+                        {section.name}
+                      </label>
+                      <div className="flex items-center gap-1">
+                        {voiceEditProcessingTarget === section.key && (
+                          <Loader2 className="w-3 h-3 animate-spin text-muted-foreground" />
+                        )}
+                        {voiceEditTarget === section.key && (
+                          <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+                        )}
+                        <Button
+                          size="icon"
+                          variant={voiceEditTarget === section.key ? "destructive" : "ghost"}
+                          className="h-5 w-5"
+                          onClick={voiceEditTarget === section.key ? stopVoiceEdit : () => startVoiceEdit(section.key)}
+                          disabled={voiceEditProcessingTarget !== null && voiceEditProcessingTarget !== section.key}
+                          data-testid={`button-voice-edit-${section.key}`}
+                        >
+                          {voiceEditTarget === section.key ? <Square className="w-3 h-3" fill="currentColor" /> : <Mic className="w-3 h-3" />}
+                        </Button>
+                      </div>
+                    </div>
                     <Textarea
                       value={String(editableReport[section.key] ?? "")}
                       onChange={(e) => handleSectionEdit(section.key, e.target.value)}
@@ -716,9 +745,29 @@ export default function DictationPage() {
               </div>
 
               <div className="border-t border-primary/30 pt-1 px-1">
-                <label className="text-[10px] font-medium text-primary uppercase tracking-wider">
-                  Impression
-                </label>
+                <div className="flex items-center justify-between gap-2">
+                  <label className="text-[10px] font-medium text-primary uppercase tracking-wider">
+                    Impression
+                  </label>
+                  <div className="flex items-center gap-1">
+                    {voiceEditProcessingTarget === "impressions" && (
+                      <Loader2 className="w-3 h-3 animate-spin text-primary" />
+                    )}
+                    {voiceEditTarget === "impressions" && (
+                      <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+                    )}
+                    <Button
+                      size="icon"
+                      variant={voiceEditTarget === "impressions" ? "destructive" : "ghost"}
+                      className="h-5 w-5"
+                      onClick={voiceEditTarget === "impressions" ? stopVoiceEdit : () => startVoiceEdit("impressions")}
+                      disabled={voiceEditProcessingTarget !== null && voiceEditProcessingTarget !== "impressions"}
+                      data-testid="button-voice-edit-impressions"
+                    >
+                      {voiceEditTarget === "impressions" ? <Square className="w-3 h-3" fill="currentColor" /> : <Mic className="w-3 h-3" />}
+                    </Button>
+                  </div>
+                </div>
                 <Textarea
                   value={editableImpressions}
                   onChange={(e) => setEditableImpressions(e.target.value)}
