@@ -8,17 +8,18 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { Mic, Square, Loader2, Copy, Check, FileText, Activity, ClipboardCheck } from "lucide-react";
+import { Mic, Square, Loader2, Copy, Check, FileText, Activity, ClipboardCheck, Sparkles } from "lucide-react";
 import type { Template, Dictation } from "@shared/schema";
 
-type PipelinePhase = "idle" | "recording" | "transcribing" | "identifying" | "mapping" | "impressions" | "complete" | "error";
+type PipelinePhase = "idle" | "recording" | "transcribing" | "correcting" | "identifying" | "mapping" | "impressions" | "complete" | "error";
 
 const phaseLabels: Record<PipelinePhase, string> = {
   idle: "Ready",
   recording: "Recording...",
   transcribing: "Finalizing transcription...",
-  identifying: "Phase 2: Identifying region & template...",
-  mapping: "Phase 3: Mapping to structured report...",
+  correcting: "Correcting transcript with GPT...",
+  identifying: "Identifying region & template...",
+  mapping: "Mapping to structured report...",
   impressions: "Generating impressions...",
   complete: "Report complete",
   error: "Error occurred",
@@ -33,6 +34,7 @@ export default function DictationPage() {
   const [phase, setPhase] = useState<PipelinePhase>("idle");
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>("");
   const [rawTranscription, setRawTranscription] = useState("");
+  const [correctedTranscription, setCorrectedTranscription] = useState("");
   const [liveTranscript, setLiveTranscript] = useState("");
   const [structuredReport, setStructuredReport] = useState<Record<string, string>>({});
   const [impressions, setImpressions] = useState("");
@@ -198,6 +200,7 @@ export default function DictationPage() {
       setPhase("recording");
       setLiveTranscript("");
       setRawTranscription("");
+      setCorrectedTranscription("");
       setStructuredReport({});
       setImpressions("");
       setEditableReport({});
@@ -304,6 +307,9 @@ export default function DictationPage() {
               case "transcription":
                 setRawTranscription(event.data);
                 break;
+              case "corrected_transcription":
+                setCorrectedTranscription(event.data);
+                break;
               case "template_matched":
                 setMatchedTemplate(event.template);
                 break;
@@ -401,6 +407,7 @@ export default function DictationPage() {
   const resetDictation = () => {
     setPhase("idle");
     setRawTranscription("");
+    setCorrectedTranscription("");
     setLiveTranscript("");
     setStructuredReport({});
     setImpressions("");
@@ -544,7 +551,28 @@ export default function DictationPage() {
                 <FileText className="w-4 h-4 text-muted-foreground" />
                 <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">Raw Transcription</h3>
               </div>
-              <p className="text-sm font-mono leading-relaxed" data-testid="text-raw-transcription">{rawTranscription}</p>
+              <p className="text-sm font-mono leading-relaxed text-muted-foreground" data-testid="text-raw-transcription">{rawTranscription}</p>
+            </Card>
+          )}
+
+          {correctedTranscription && !isRecording && (
+            <Card className="p-4 space-y-2 border-primary/30">
+              <div className="flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-primary" />
+                <h3 className="text-sm font-medium text-primary uppercase tracking-wider">Corrected Transcription</h3>
+              </div>
+              <p className="text-sm font-mono leading-relaxed" data-testid="text-corrected-transcription">{correctedTranscription}</p>
+            </Card>
+          )}
+
+          {phase === "correcting" && !correctedTranscription && (
+            <Card className="p-4 space-y-2 border-primary/30">
+              <div className="flex items-center gap-2">
+                <Loader2 className="w-4 h-4 text-primary animate-spin" />
+                <h3 className="text-sm font-medium text-primary uppercase tracking-wider">Correcting Transcript...</h3>
+              </div>
+              <Skeleton className="h-4 w-3/4" />
+              <Skeleton className="h-4 w-1/2" />
             </Card>
           )}
 
@@ -602,12 +630,13 @@ export default function DictationPage() {
 
 function PipelineProgress({ phase }: { phase: PipelinePhase }) {
   const steps = [
+    { key: "correcting", label: "Correct" },
     { key: "identifying", label: "Identify" },
     { key: "mapping", label: "Map" },
     { key: "impressions", label: "Impressions" },
   ];
 
-  const phaseOrder = ["identifying", "mapping", "impressions", "complete"];
+  const phaseOrder = ["correcting", "identifying", "mapping", "impressions", "complete"];
   const currentIdx = phaseOrder.indexOf(phase);
 
   return (

@@ -33,6 +33,31 @@ export async function transcribeAudio(audioBuffer: Buffer, whisperPrompt?: strin
   return transcription as unknown as string;
 }
 
+export async function correctTranscript(
+  rawTranscription: string,
+  customPrompt?: string
+): Promise<string> {
+  if (!process.env.OPENAI_API_KEY) {
+    throw new Error("OPENAI_API_KEY is not configured. Please set it in Secrets.");
+  }
+
+  const defaultPrompt = `You are a medical transcription normalization engine for radiology.
+Your task is to convert raw speech-to-text output into clean, clinically correct radiology dictation while preserving the speaker's meaning.`;
+
+  const prompt = customPrompt || defaultPrompt;
+
+  const response = await openai.chat.completions.create({
+    model: "gpt-4o",
+    messages: [
+      { role: "system", content: prompt },
+      { role: "user", content: rawTranscription },
+    ],
+    max_completion_tokens: 4000,
+  });
+
+  return response.choices[0]?.message?.content || rawTranscription;
+}
+
 export async function identifyRegionAndTemplate(
   transcription: string,
   templates: Template[],

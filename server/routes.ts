@@ -7,7 +7,7 @@ import { writeFile, unlink, readFile } from "fs/promises";
 import { randomUUID } from "crypto";
 import { tmpdir } from "os";
 import { join } from "path";
-import { transcribeAudio, identifyRegionAndTemplate, mapToStructuredReport, generateImpressions } from "./ai-pipeline";
+import { transcribeAudio, correctTranscript, identifyRegionAndTemplate, mapToStructuredReport, generateImpressions } from "./ai-pipeline";
 import { insertTemplateSchema, insertAiPromptSchema } from "@shared/schema";
 import type { TemplateSection } from "@shared/schema";
 
@@ -230,6 +230,18 @@ export async function registerRoutes(
         status: "transcribed",
       });
 
+      // PHASE 1.5: GPT transcript correction
+      send({ type: "phase", phase: "correcting" });
+      const correctionPrompt = await storage.getPromptByType("transcript_correction");
+      const correctedTranscription = correctionPrompt?.isActive
+        ? await correctTranscript(transcription, correctionPrompt.content)
+        : transcription;
+      send({ type: "corrected_transcription", data: correctedTranscription });
+
+      await storage.updateDictation(dictation.id, {
+        correctedTranscription: correctedTranscription,
+      });
+
       // PHASE 2: Region identification and template matching
       send({ type: "phase", phase: "identifying" });
       const allTemplates = await storage.getTemplates();
@@ -241,7 +253,7 @@ export async function registerRoutes(
       } else {
         const regionPrompt = await storage.getPromptByType("region_identification");
         const identification = await identifyRegionAndTemplate(
-          transcription,
+          correctedTranscription,
           activeTemplates,
           regionPrompt?.content
         );
@@ -273,7 +285,7 @@ export async function registerRoutes(
       send({ type: "phase", phase: "mapping" });
       const mappingPrompt = await storage.getPromptByType("structured_mapping");
       const structuredReport = await mapToStructuredReport(
-        transcription,
+        correctedTranscription,
         matchedTemplate,
         mappingPrompt?.content
       );
