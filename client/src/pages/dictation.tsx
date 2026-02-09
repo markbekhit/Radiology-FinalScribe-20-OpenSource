@@ -273,7 +273,7 @@ export default function DictationPage() {
 
   const processDictation = useMutation({
     mutationFn: async (transcription: string) => {
-      setPhase("identifying");
+      setPhase("correcting");
 
       const formData = new FormData();
       formData.append("transcription", transcription);
