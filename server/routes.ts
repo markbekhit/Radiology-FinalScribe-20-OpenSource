@@ -357,5 +357,38 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/dictations/remap", async (req, res) => {
+    try {
+      const { transcription, templateId } = req.body;
+      if (!transcription || !templateId) {
+        return res.status(400).json({ error: "transcription and templateId required" });
+      }
+
+      const template = await storage.getTemplate(templateId);
+      if (!template) {
+        return res.status(404).json({ error: "Template not found" });
+      }
+
+      const mappingPrompt = await storage.getPromptByType("structured_mapping");
+      const structuredReport = await mapToStructuredReport(
+        transcription,
+        template,
+        mappingPrompt?.content
+      );
+
+      const impressionsPrompt = await storage.getPromptByType("impressions");
+      const impressionsText = await generateImpressions(
+        structuredReport,
+        template,
+        impressionsPrompt?.content
+      );
+
+      res.json({ structuredReport, impressions: impressionsText });
+    } catch (error: any) {
+      console.error("Remap error:", error);
+      res.status(500).json({ error: error.message || "Remap failed" });
+    }
+  });
+
   return httpServer;
 }

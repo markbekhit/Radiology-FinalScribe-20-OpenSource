@@ -8,7 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { Mic, Square, Loader2, Copy, Check, Activity, ClipboardCheck, Sparkles } from "lucide-react";
+import { Mic, Square, Loader2, Copy, Check, Activity, ClipboardCheck, Sparkles, RefreshCw } from "lucide-react";
 import type { Template, Dictation } from "@shared/schema";
 
 type PipelinePhase = "idle" | "recording" | "transcribing" | "correcting" | "identifying" | "mapping" | "impressions" | "complete" | "error";
@@ -73,6 +73,7 @@ export default function DictationPage() {
   const [voiceEditTarget, setVoiceEditTarget] = useState<string | null>(null);
   const [voiceEditProcessingTarget, setVoiceEditProcessingTarget] = useState<string | null>(null);
   const [lastEditInstruction, setLastEditInstruction] = useState("");
+  const [isRemapping, setIsRemapping] = useState(false);
   const voiceEditRecorderRef = useRef<MediaRecorder | null>(null);
   const voiceEditStreamRef = useRef<MediaStream | null>(null);
 
@@ -505,6 +506,27 @@ export default function DictationPage() {
     }
   }, []);
 
+  const remapReport = async () => {
+    if (!correctedTranscription || !displayTemplate) return;
+    setIsRemapping(true);
+    try {
+      const res = await apiRequest("POST", "/api/dictations/remap", {
+        transcription: correctedTranscription,
+        templateId: displayTemplate.id,
+      });
+      const { structuredReport: newReport, impressions: newImpressions } = await res.json();
+      setStructuredReport(newReport);
+      setImpressions(newImpressions);
+      const merged = buildMergedReport(newReport, newImpressions, displayTemplate);
+      setFullReportText(merged);
+      toast({ title: "Report updated from edited transcript" });
+    } catch (err: any) {
+      toast({ title: "Re-map failed", description: err.message, variant: "destructive" });
+    } finally {
+      setIsRemapping(false);
+    }
+  };
+
   const resetDictation = () => {
     setPhase("idle");
     setRawTranscription("");
@@ -676,14 +698,32 @@ export default function DictationPage() {
                     size="icon"
                     variant={voiceEditTarget === "corrected" ? "destructive" : "outline"}
                     onClick={voiceEditTarget === "corrected" ? stopVoiceEdit : () => startVoiceEdit("corrected")}
-                    disabled={voiceEditProcessingTarget !== null || isProcessing}
+                    disabled={voiceEditProcessingTarget !== null || isProcessing || isRemapping}
                     data-testid="button-voice-edit"
                   >
                     {voiceEditTarget === "corrected" ? <Square className="w-4 h-4" fill="currentColor" /> : <Mic className="w-4 h-4" />}
                   </Button>
+                  {showReport && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={remapReport}
+                      disabled={isRemapping || isProcessing}
+                      data-testid="button-remap-report"
+                    >
+                      {isRemapping ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" /> : <RefreshCw className="w-3.5 h-3.5 mr-1.5" />}
+                      {isRemapping ? "Re-mapping..." : "Re-map Report"}
+                    </Button>
+                  )}
                 </div>
               </div>
-              <p className="text-sm font-mono leading-relaxed" data-testid="text-corrected-transcription">{correctedTranscription}</p>
+              <Textarea
+                value={correctedTranscription}
+                onChange={(e) => setCorrectedTranscription(e.target.value)}
+                className="resize-none border-0 bg-transparent text-sm focus-visible:ring-0 font-mono leading-relaxed"
+                rows={Math.max(2, correctedTranscription.split("\n").length)}
+                data-testid="textarea-corrected-transcription"
+              />
               {lastEditInstruction && (
                 <p className="text-xs text-muted-foreground italic" data-testid="text-last-edit-instruction">
                   Last edit: "{lastEditInstruction}"
