@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
@@ -24,11 +24,14 @@ const phaseLabels: Record<PipelinePhase, string> = {
   error: "Error occurred",
 };
 
+const CHUNK_INTERVAL_MS = 5000;
+
 export default function DictationPage() {
   const { toast } = useToast();
   const [phase, setPhase] = useState<PipelinePhase>("idle");
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>("");
   const [rawTranscription, setRawTranscription] = useState("");
+  const [liveTranscript, setLiveTranscript] = useState("");
   const [structuredReport, setStructuredReport] = useState<Record<string, string>>({});
   const [impressions, setImpressions] = useState("");
   const [editableReport, setEditableReport] = useState<Record<string, string>>({});
@@ -36,9 +39,16 @@ export default function DictationPage() {
   const [currentDictation, setCurrentDictation] = useState<Dictation | null>(null);
   const [copied, setCopied] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const chunksRef = useRef<Blob[]>([]);
   const [matchedTemplate, setMatchedTemplate] = useState<Template | null>(null);
+  const [chunksPending, setChunksPending] = useState(0);
+
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+  const segmentIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const transcriptSegmentsRef = useRef<string[]>([]);
+  const isRecordingRef = useRef(false);
+  const pendingCountRef = useRef(0);
 
   const { data: templates = [], isLoading: templatesLoading } = useQuery<Template[]>({
     queryKey: ["/api/templates"],
@@ -46,20 +56,93 @@ export default function DictationPage() {
 
   const activeTemplates = templates.filter((t) => t.isActive);
 
+  const sendChunkForTranscription = useCallback(async (audioBlob: Blob, segmentIndex: number) => {
+    if (audioBlob.size < 1000) return;
+
+    pendingCountRef.current += 1;
+    setChunksPending(pendingCountRef.current);
+
+    try {
+      const formData = new FormData();
+      formData.append("audio", audioBlob, `chunk-${segmentIndex}.webm`);
+
+      const res = await fetch("/api/dictations/transcribe-chunk", {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!res.ok) {
+        console.error("Chunk transcription failed:", await res.text());
+        return;
+      }
+
+      const { text } = await res.json();
+      if (text) {
+        transcriptSegmentsRef.current[segmentIndex] = text;
+        const fullTranscript = transcriptSegmentsRef.current.filter(Boolean).join(" ");
+        setLiveTranscript(fullTranscript);
+      }
+    } catch (err) {
+      console.error("Chunk transcription error:", err);
+    } finally {
+      pendingCountRef.current -= 1;
+      setChunksPending(pendingCountRef.current);
+    }
+  }, []);
+
+  const collectSegment = useCallback(() => {
+    const recorder = mediaRecorderRef.current;
+    if (!recorder || recorder.state !== "recording") return;
+
+    recorder.stop();
+  }, []);
+
+  const finalStopResolveRef = useRef<(() => void) | null>(null);
+
+  const startNewRecorder = useCallback((stream: MediaStream) => {
+    const recorder = new MediaRecorder(stream, { mimeType: "audio/webm;codecs=opus" });
+    const localChunks: Blob[] = [];
+    const segmentIndex = transcriptSegmentsRef.current.length;
+    transcriptSegmentsRef.current.push("");
+
+    recorder.ondataavailable = (e) => {
+      if (e.data.size > 0) {
+        localChunks.push(e.data);
+        chunksRef.current.push(e.data);
+      }
+    };
+
+    recorder.onstop = () => {
+      const segmentBlob = new Blob(localChunks, { type: "audio/webm" });
+      sendChunkForTranscription(segmentBlob, segmentIndex);
+
+      if (isRecordingRef.current && streamRef.current) {
+        startNewRecorder(streamRef.current);
+      } else {
+        if (finalStopResolveRef.current) {
+          finalStopResolveRef.current();
+          finalStopResolveRef.current = null;
+        }
+      }
+    };
+
+    recorder.start(100);
+    mediaRecorderRef.current = recorder;
+  }, [sendChunkForTranscription]);
+
   const startRecording = useCallback(async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const recorder = new MediaRecorder(stream, { mimeType: "audio/webm;codecs=opus" });
-      mediaRecorderRef.current = recorder;
+      streamRef.current = stream;
       chunksRef.current = [];
+      transcriptSegmentsRef.current = [];
+      isRecordingRef.current = true;
 
-      recorder.ondataavailable = (e) => {
-        if (e.data.size > 0) chunksRef.current.push(e.data);
-      };
+      startNewRecorder(stream);
 
-      recorder.start(100);
       setIsRecording(true);
       setPhase("recording");
+      setLiveTranscript("");
       setRawTranscription("");
       setStructuredReport({});
       setImpressions("");
@@ -67,37 +150,62 @@ export default function DictationPage() {
       setEditableImpressions("");
       setCurrentDictation(null);
       setMatchedTemplate(null);
+
+      segmentIntervalRef.current = setInterval(() => {
+        collectSegment();
+      }, CHUNK_INTERVAL_MS);
     } catch {
       toast({ title: "Microphone access denied", description: "Please allow microphone access to record dictations.", variant: "destructive" });
     }
-  }, [toast]);
+  }, [toast, startNewRecorder, collectSegment]);
 
-  const stopRecording = useCallback((): Promise<Blob> => {
+  const stopRecording = useCallback((): Promise<void> => {
     return new Promise((resolve) => {
-      const recorder = mediaRecorderRef.current;
-      if (!recorder || recorder.state !== "recording") {
-        resolve(new Blob());
-        return;
+      isRecordingRef.current = false;
+
+      if (segmentIntervalRef.current) {
+        clearInterval(segmentIntervalRef.current);
+        segmentIntervalRef.current = null;
       }
-      recorder.onstop = () => {
-        const blob = new Blob(chunksRef.current, { type: "audio/webm" });
-        recorder.stream.getTracks().forEach((t) => t.stop());
+
+      const recorder = mediaRecorderRef.current;
+      if (recorder && recorder.state === "recording") {
+        finalStopResolveRef.current = () => {
+          if (streamRef.current) {
+            streamRef.current.getTracks().forEach((t) => t.stop());
+            streamRef.current = null;
+          }
+          setIsRecording(false);
+          resolve();
+        };
+        recorder.stop();
+      } else {
+        if (streamRef.current) {
+          streamRef.current.getTracks().forEach((t) => t.stop());
+          streamRef.current = null;
+        }
         setIsRecording(false);
-        resolve(blob);
-      };
-      recorder.stop();
+        resolve();
+      }
     });
   }, []);
 
+  useEffect(() => {
+    return () => {
+      if (segmentIntervalRef.current) clearInterval(segmentIntervalRef.current);
+      if (streamRef.current) streamRef.current.getTracks().forEach((t) => t.stop());
+    };
+  }, []);
+
   const processDictation = useMutation({
-    mutationFn: async (audioBlob: Blob) => {
+    mutationFn: async (transcription: string) => {
+      setPhase("identifying");
+
       const formData = new FormData();
-      formData.append("audio", audioBlob, "recording.webm");
+      formData.append("transcription", transcription);
       if (selectedTemplateId) {
         formData.append("templateId", selectedTemplateId);
       }
-
-      setPhase("transcribing");
 
       const res = await fetch("/api/dictations/process", {
         method: "POST",
@@ -168,9 +276,30 @@ export default function DictationPage() {
 
   const handleRecordClick = async () => {
     if (isRecording) {
-      const blob = await stopRecording();
-      if (blob.size > 0) {
-        processDictation.mutate(blob);
+      setPhase("transcribing");
+      await stopRecording();
+
+      const waitForPending = () =>
+        new Promise<void>((resolve) => {
+          const check = () => {
+            if (pendingCountRef.current <= 0) {
+              resolve();
+            } else {
+              setTimeout(check, 200);
+            }
+          };
+          check();
+        });
+
+      await waitForPending();
+
+      const fullTranscript = transcriptSegmentsRef.current.filter(Boolean).join(" ").trim();
+      if (fullTranscript) {
+        setRawTranscription(fullTranscript);
+        processDictation.mutate(fullTranscript);
+      } else {
+        setPhase("idle");
+        toast({ title: "No speech detected", description: "No transcribable audio was captured.", variant: "destructive" });
       }
     } else {
       startRecording();
@@ -210,6 +339,7 @@ export default function DictationPage() {
   const resetDictation = () => {
     setPhase("idle");
     setRawTranscription("");
+    setLiveTranscript("");
     setStructuredReport({});
     setImpressions("");
     setEditableReport({});
@@ -225,7 +355,7 @@ export default function DictationPage() {
   return (
     <div className="flex flex-col h-full">
       <div className="flex items-center justify-between gap-4 flex-wrap p-4 border-b border-border">
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
           <Activity className="w-5 h-5 text-primary" />
           <h1 className="text-lg font-semibold tracking-tight">Dictation</h1>
         </div>
@@ -308,7 +438,22 @@ export default function DictationPage() {
                       : "Tap to start recording your radiology dictation"}
                 </p>
 
-                {isProcessing && (
+                {(isRecording || (isProcessing && phase === "transcribing")) && liveTranscript && (
+                  <Card className="w-full max-w-lg p-4 space-y-2">
+                    <div className="flex items-center gap-2">
+                      <div className={`w-2 h-2 rounded-full ${isRecording ? "bg-red-500 animate-pulse" : "bg-primary"}`} />
+                      <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Live Transcript</h3>
+                      {chunksPending > 0 && (
+                        <Loader2 className="w-3 h-3 text-muted-foreground animate-spin ml-auto" />
+                      )}
+                    </div>
+                    <p className="text-sm font-mono leading-relaxed text-foreground/80" data-testid="text-live-transcript">
+                      {liveTranscript}
+                    </p>
+                  </Card>
+                )}
+
+                {isProcessing && phase !== "transcribing" && (
                   <div className="w-full max-w-sm">
                     <PipelineProgress phase={phase} />
                   </div>
@@ -317,7 +462,7 @@ export default function DictationPage() {
             </>
           )}
 
-          {rawTranscription && (
+          {rawTranscription && !isRecording && phase !== "transcribing" && (
             <Card className="p-4 space-y-2">
               <div className="flex items-center gap-2">
                 <FileText className="w-4 h-4 text-muted-foreground" />
@@ -381,13 +526,12 @@ export default function DictationPage() {
 
 function PipelineProgress({ phase }: { phase: PipelinePhase }) {
   const steps = [
-    { key: "transcribing", label: "Transcribe" },
     { key: "identifying", label: "Identify" },
     { key: "mapping", label: "Map" },
     { key: "impressions", label: "Impressions" },
   ];
 
-  const phaseOrder = ["transcribing", "identifying", "mapping", "impressions", "complete"];
+  const phaseOrder = ["identifying", "mapping", "impressions", "complete"];
   const currentIdx = phaseOrder.indexOf(phase);
 
   return (

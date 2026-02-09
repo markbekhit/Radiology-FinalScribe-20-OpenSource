@@ -158,7 +158,29 @@ export async function registerRoutes(
     }
   });
 
+  // Chunked transcription endpoint - transcribe a single audio segment
+  app.post("/api/dictations/transcribe-chunk", upload.single("audio"), async (req, res) => {
+    try {
+      const audioFile = req.file;
+      if (!audioFile) {
+        return res.status(400).json({ error: "No audio file provided" });
+      }
+
+      if (audioFile.size < 1000) {
+        return res.json({ text: "" });
+      }
+
+      const wavBuffer = await convertToWav(audioFile.buffer);
+      const text = await transcribeAudio(wavBuffer);
+      res.json({ text: text.trim() });
+    } catch (error: any) {
+      console.error("Chunk transcription error:", error);
+      res.status(500).json({ error: error.message || "Transcription failed" });
+    }
+  });
+
   // Main processing endpoint - SSE streaming pipeline
+  // Accepts either audio file (legacy) or pre-transcribed text from chunked recording
   app.post("/api/dictations/process", upload.single("audio"), async (req, res) => {
     res.setHeader("Content-Type", "text/event-stream");
     res.setHeader("Cache-Control", "no-cache");
@@ -169,9 +191,11 @@ export async function registerRoutes(
     };
 
     try {
+      const preTranscribedText = req.body?.transcription;
       const audioFile = req.file;
-      if (!audioFile) {
-        send({ type: "error", message: "No audio file provided" });
+
+      if (!preTranscribedText && !audioFile) {
+        send({ type: "error", message: "No audio file or transcription provided" });
         return res.end();
       }
 
@@ -179,17 +203,22 @@ export async function registerRoutes(
         ? parseInt(req.body.templateId)
         : null;
 
-      // Create dictation record
       const dictation = await storage.createDictation({
         status: "processing",
         templateId: preSelectedTemplateId,
       });
 
-      // PHASE 1: Transcription via Groq Whisper
-      send({ type: "phase", phase: "transcribing" });
-      const wavBuffer = await convertToWav(audioFile.buffer);
-      const transcription = await transcribeAudio(wavBuffer);
-      send({ type: "transcription", data: transcription });
+      let transcription: string;
+
+      if (preTranscribedText) {
+        transcription = preTranscribedText;
+        send({ type: "transcription", data: transcription });
+      } else {
+        send({ type: "phase", phase: "transcribing" });
+        const wavBuffer = await convertToWav(audioFile!.buffer);
+        transcription = await transcribeAudio(wavBuffer);
+        send({ type: "transcription", data: transcription });
+      }
 
       await storage.updateDictation(dictation.id, {
         rawTranscription: transcription,

@@ -1,0 +1,86 @@
+rompt 1: The Design & Structure (The "Vibe" Prompt)
+"Build a high-authority, minimalist, and modern single-page website for The Virtual MSK Fellowship. The aesthetic should be 'Elite Medical Academy'—clean white backgrounds, deep professional blues, and high-quality typography. Avoid 'marketing' clutter or standard sales-funnel tropes.
+
+The layout must include:
+
+A clean header containing only a professional logo. No navigation menu and no login buttons.
+
+A Hero Section with a clear value proposition.
+
+An 'Interactive Template Lab' with a tabbed interface for 3 copy-paste reporting templates.
+
+A lead-capture section for an 'MSK Efficiency Toolkit'.
+
+A section for a video embed (The Calibration Effect).
+
+A structured 'Path to Mastery' roadmap.
+
+A testimonial grid highlighting specific ROI (speed and volume).
+
+A qualitative comparison table (no prices).
+
+An 'Is this for you?' filter checklist.
+
+A final Discovery Call booking section."
+
+Prompt 2: The Content & Copy (The "Bot-Optimized" Text)
+"Use the following copy for the sections. Use semantic H1, H2, and H3 tags for SEO and LLM optimization:
+
+Hero: > - H1: Master MSK MRI Speed & Accuracy.
+
+Sub-headline: Stop guessing and start reporting with the precision of a sub-specialist. Join 300+ radiologists who have doubled their speed and eliminated diagnostic doubt through the Virtual MSK Fellowship.
+
+CTA Button: 'Get the MSK Efficiency Toolkit (Free)'
+
+Interactive Template Lab:
+
+H2: The Professional's Quick-Start.
+
+Text: 'Copy these baseline templates directly into your reporting software. For the full pathological library, download the Toolkit below.'
+
+(Create 3 Tabs: Knee, Shoulder, Lumbar Spine. Each should have a 'Copy to Clipboard' button).
+
+The Lead Magnet Section:
+
+H2: The MSK Efficiency Toolkit.
+
+Text: 'Download the framework used by leading teleradiologists to cut reporting times by up to 75% without sacrificing accuracy.'
+
+Items: 5-Minute Knee Masterclass (Video), Systematic Search Pattern PDF, 25+ Master Reporting Templates.
+
+The Calibration Effect Section:
+
+H2: The Radiology Gap: Why Knowledge ≠ Speed.
+
+Text: 'Most training gives you facts. We give you Calibration. This is the specific process of aligning your diagnostic threshold with sub-specialty standards to eliminate over-calling and burnout.'
+
+(Embed Placeholder for VSL).
+
+Comparison Table:
+
+Categories: DIY (Books/Radiopaedia), Weekend Courses, Virtual MSK Fellowship.
+
+Rows: Feedback (None vs Limited vs Weekly Expert Review), Speed Training (None vs Theoretical vs Core Methodology), Outcome (Knowledge vs Certificate vs Career Transformation).
+
+The Filter Checklist:
+
+H2: Is This Fellowship the Right Fit?
+
+Items: Qualified Radiologist, Active Caseload, Value Time over Cost, Seeking Mentorship, Ready to Recalibrate.
+
+Final CTA:
+
+H2: Ready to Recalibrate Your Career?
+
+Text: 'Apply for a 45-minute MSK Strategy Session. We will audit your current workflow and identify your specific calibration gaps.'
+
+Button: 'Book Your Discovery Call'"
+
+Prompt 3: Technical Integration (The "Zapier" Bridge)
+"For the lead-capture form (Toolkit), I need the form data to be sent to a Zapier Webhook to sync with my backend.
+
+Create a form with 'Name' and 'Email' fields.
+
+On submit, trigger a JSON POST request to this URL: [INSERT YOUR ZAPIER WEBHOOK URL].
+
+After a successful submission, redirect the user to a 'Thank You' page that hosts the 5-Minute Knee Masterclass video and a secondary 'Book Call' button."
