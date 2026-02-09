@@ -8,7 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { Mic, Square, Loader2, Copy, Check, Activity, ClipboardCheck, Sparkles, RefreshCw } from "lucide-react";
+import { Mic, Square, Loader2, Copy, Check, Activity, ClipboardCheck, Sparkles, RefreshCw, Pause, Play } from "lucide-react";
 import type { Template, Dictation } from "@shared/schema";
 
 type PipelinePhase = "idle" | "recording" | "transcribing" | "correcting" | "identifying" | "mapping" | "impressions" | "complete" | "error";
@@ -74,6 +74,8 @@ export default function DictationPage() {
   const [voiceEditProcessingTarget, setVoiceEditProcessingTarget] = useState<string | null>(null);
   const [lastEditInstruction, setLastEditInstruction] = useState("");
   const [isRemapping, setIsRemapping] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
+  const [transcriptEdited, setTranscriptEdited] = useState(false);
   const voiceEditRecorderRef = useRef<MediaRecorder | null>(null);
   const voiceEditStreamRef = useRef<MediaStream | null>(null);
 
@@ -234,6 +236,7 @@ export default function DictationPage() {
       startNewRecorder(stream);
 
       setIsRecording(true);
+      setIsPaused(false);
       setPhase("recording");
       setLiveTranscript("");
       setRawTranscription("");
@@ -244,6 +247,7 @@ export default function DictationPage() {
       setCurrentDictation(null);
       setMatchedTemplate(null);
       setAudioLevel(0);
+      setTranscriptEdited(false);
 
       vadFrameRef.current = requestAnimationFrame(runVAD);
     } catch {
@@ -267,13 +271,17 @@ export default function DictationPage() {
       }
 
       const recorder = mediaRecorderRef.current;
-      if (recorder && recorder.state === "recording") {
+      if (recorder && (recorder.state === "recording" || recorder.state === "paused")) {
+        if (recorder.state === "paused") {
+          recorder.resume();
+        }
         finalStopResolveRef.current = () => {
           if (streamRef.current) {
             streamRef.current.getTracks().forEach((t) => t.stop());
             streamRef.current = null;
           }
           setIsRecording(false);
+          setIsPaused(false);
           setAudioLevel(0);
           resolve();
         };
@@ -289,6 +297,30 @@ export default function DictationPage() {
       }
     });
   }, []);
+
+  const pauseRecording = useCallback(() => {
+    const recorder = mediaRecorderRef.current;
+    if (recorder && recorder.state === "recording") {
+      recorder.pause();
+    }
+    if (vadFrameRef.current) {
+      cancelAnimationFrame(vadFrameRef.current);
+      vadFrameRef.current = null;
+    }
+    setIsPaused(true);
+    setAudioLevel(0);
+  }, []);
+
+  const resumeRecording = useCallback(() => {
+    const recorder = mediaRecorderRef.current;
+    if (recorder && recorder.state === "paused") {
+      recorder.resume();
+    }
+    setIsPaused(false);
+    isSpeakingRef.current = false;
+    silenceStartRef.current = null;
+    vadFrameRef.current = requestAnimationFrame(runVAD);
+  }, [runVAD]);
 
   useEffect(() => {
     return () => {
@@ -428,7 +460,7 @@ export default function DictationPage() {
   }, [correctedTranscription, fullReportText]);
 
   const applyEditResult = useCallback((target: string, text: string) => {
-    if (target === "corrected") setCorrectedTranscription(text);
+    if (target === "corrected") { setCorrectedTranscription(text); setTranscriptEdited(true); }
     else if (target === "report") setFullReportText(text);
   }, []);
 
@@ -519,6 +551,7 @@ export default function DictationPage() {
       setImpressions(newImpressions);
       const merged = buildMergedReport(newReport, newImpressions, displayTemplate);
       setFullReportText(merged);
+      setTranscriptEdited(false);
       toast({ title: "Report updated from edited transcript" });
     } catch (err: any) {
       toast({ title: "Re-map failed", description: err.message, variant: "destructive" });
@@ -538,6 +571,8 @@ export default function DictationPage() {
     setCurrentDictation(null);
     setMatchedTemplate(null);
     setLastEditInstruction("");
+    setIsPaused(false);
+    setTranscriptEdited(false);
   };
 
   const isProcessing = phase !== "idle" && phase !== "complete" && phase !== "error" && phase !== "recording";
@@ -600,7 +635,7 @@ export default function DictationPage() {
 
               <div className="flex flex-col items-center justify-center py-12 space-y-8">
                 <div className="relative">
-                  {isRecording && (
+                  {isRecording && !isPaused && (
                     <>
                       <div className="absolute inset-0 rounded-full bg-red-500/20 animate-pulse-ring" style={{ margin: "-16px" }} />
                       <div className="absolute inset-0 rounded-full bg-red-500/10 animate-pulse-ring" style={{ margin: "-32px", animationDelay: "0.5s" }} />
@@ -611,7 +646,7 @@ export default function DictationPage() {
                     disabled={isProcessing}
                     className={`relative w-28 h-28 rounded-full flex items-center justify-center transition-all duration-300 ${
                       isRecording
-                        ? "bg-red-600 scale-110"
+                        ? isPaused ? "bg-yellow-600 scale-105" : "bg-red-600 scale-110"
                         : isProcessing
                           ? "bg-muted cursor-not-allowed"
                           : "bg-primary hover:bg-primary/90 hover:scale-105"
@@ -629,6 +664,18 @@ export default function DictationPage() {
                 </div>
 
                 {isRecording && (
+                  <Button
+                    size="lg"
+                    variant="outline"
+                    onClick={isPaused ? resumeRecording : pauseRecording}
+                    data-testid="button-pause"
+                  >
+                    {isPaused ? <Play className="w-4 h-4 mr-2" /> : <Pause className="w-4 h-4 mr-2" />}
+                    {isPaused ? "Resume" : "Pause"}
+                  </Button>
+                )}
+
+                {isRecording && !isPaused && (
                   <div className="flex items-center gap-2 w-full max-w-xs" data-testid="audio-level-meter">
                     <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
                       <div
@@ -644,7 +691,9 @@ export default function DictationPage() {
 
                 <p className="text-sm text-muted-foreground text-center max-w-md">
                   {isRecording
-                    ? "Recording... Chunks sent on natural pauses"
+                    ? isPaused
+                      ? "Paused — tap Resume to continue or Stop to finish"
+                      : "Recording... Chunks sent on natural pauses"
                     : isProcessing
                       ? phaseLabels[phase]
                       : "Tap to start recording your radiology dictation"}
@@ -703,7 +752,7 @@ export default function DictationPage() {
                   >
                     {voiceEditTarget === "corrected" ? <Square className="w-4 h-4" fill="currentColor" /> : <Mic className="w-4 h-4" />}
                   </Button>
-                  {showReport && (
+                  {showReport && transcriptEdited && (
                     <Button
                       size="sm"
                       variant="outline"
@@ -719,7 +768,7 @@ export default function DictationPage() {
               </div>
               <Textarea
                 value={correctedTranscription}
-                onChange={(e) => setCorrectedTranscription(e.target.value)}
+                onChange={(e) => { setCorrectedTranscription(e.target.value); setTranscriptEdited(true); }}
                 className="resize-none border-0 bg-transparent text-sm focus-visible:ring-0 font-mono leading-relaxed"
                 rows={Math.max(2, correctedTranscription.split("\n").length)}
                 data-testid="textarea-corrected-transcription"
