@@ -7,7 +7,7 @@ import { writeFile, unlink, readFile } from "fs/promises";
 import { randomUUID } from "crypto";
 import { tmpdir } from "os";
 import { join } from "path";
-import { transcribeAudio, correctTranscript, identifyRegionAndTemplate, mapToStructuredReport, generateImpressions } from "./ai-pipeline";
+import { transcribeAudio, correctTranscript, applyVoiceEdit, identifyRegionAndTemplate, mapToStructuredReport, generateImpressions } from "./ai-pipeline";
 import { insertTemplateSchema, insertAiPromptSchema } from "@shared/schema";
 import type { TemplateSection } from "@shared/schema";
 
@@ -179,6 +179,41 @@ export async function registerRoutes(
     } catch (error: any) {
       console.error("Chunk transcription error:", error);
       res.status(500).json({ error: error.message || "Transcription failed" });
+    }
+  });
+
+  // Voice edit endpoint - transcribes voice instruction and applies edit to transcript
+  app.post("/api/dictations/voice-edit", upload.single("audio"), async (req, res) => {
+    try {
+      const audioFile = req.file;
+      const currentTranscript = req.body?.currentTranscript;
+
+      if (!audioFile) {
+        return res.status(400).json({ error: "No audio file provided" });
+      }
+      if (!currentTranscript) {
+        return res.status(400).json({ error: "No current transcript provided" });
+      }
+
+      const whisperPromptRecord = await storage.getPromptByType("whisper_prompt");
+      const whisperPrompt = whisperPromptRecord?.isActive ? whisperPromptRecord.content : undefined;
+
+      const wavBuffer = await convertToWav(audioFile.buffer);
+      const instruction = await transcribeAudio(wavBuffer, whisperPrompt);
+
+      if (!instruction.trim()) {
+        return res.json({ transcript: currentTranscript, instruction: "" });
+      }
+
+      const editedTranscript = await applyVoiceEdit(currentTranscript, instruction.trim());
+
+      res.json({
+        transcript: editedTranscript,
+        instruction: instruction.trim(),
+      });
+    } catch (error: any) {
+      console.error("Voice edit error:", error);
+      res.status(500).json({ error: error.message || "Voice edit failed" });
     }
   });
 

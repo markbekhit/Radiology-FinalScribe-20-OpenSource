@@ -8,7 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { Mic, Square, Loader2, Copy, Check, FileText, Activity, ClipboardCheck, Sparkles } from "lucide-react";
+import { Mic, MicOff, Square, Loader2, Copy, Check, FileText, Activity, ClipboardCheck, Sparkles } from "lucide-react";
 import type { Template, Dictation } from "@shared/schema";
 
 type PipelinePhase = "idle" | "recording" | "transcribing" | "correcting" | "identifying" | "mapping" | "impressions" | "complete" | "error";
@@ -46,6 +46,11 @@ export default function DictationPage() {
   const [matchedTemplate, setMatchedTemplate] = useState<Template | null>(null);
   const [chunksPending, setChunksPending] = useState(0);
   const [audioLevel, setAudioLevel] = useState(0);
+  const [isVoiceEditing, setIsVoiceEditing] = useState(false);
+  const [voiceEditProcessing, setVoiceEditProcessing] = useState(false);
+  const [lastEditInstruction, setLastEditInstruction] = useState("");
+  const voiceEditRecorderRef = useRef<MediaRecorder | null>(null);
+  const voiceEditStreamRef = useRef<MediaStream | null>(null);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -259,6 +264,10 @@ export default function DictationPage() {
       if (vadFrameRef.current) cancelAnimationFrame(vadFrameRef.current);
       if (audioContextRef.current) audioContextRef.current.close().catch(() => {});
       if (streamRef.current) streamRef.current.getTracks().forEach((t) => t.stop());
+      if (voiceEditStreamRef.current) voiceEditStreamRef.current.getTracks().forEach((t) => t.stop());
+      if (voiceEditRecorderRef.current && voiceEditRecorderRef.current.state === "recording") {
+        voiceEditRecorderRef.current.stop();
+      }
     };
   }, []);
 
@@ -404,6 +413,83 @@ export default function DictationPage() {
     toast({ title: "Report copied to clipboard" });
   };
 
+  const startVoiceEdit = useCallback(async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      voiceEditStreamRef.current = stream;
+      const recorder = new MediaRecorder(stream, { mimeType: "audio/webm;codecs=opus" });
+      const chunks: Blob[] = [];
+
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) chunks.push(e.data);
+      };
+
+      recorder.onstop = async () => {
+        if (voiceEditStreamRef.current) {
+          voiceEditStreamRef.current.getTracks().forEach((t) => t.stop());
+          voiceEditStreamRef.current = null;
+        }
+        setIsVoiceEditing(false);
+
+        const blob = new Blob(chunks, { type: "audio/webm" });
+        if (blob.size < 1000) return;
+
+        setVoiceEditProcessing(true);
+        try {
+          const formData = new FormData();
+          formData.append("audio", blob, "voice-edit.webm");
+          formData.append("currentTranscript", correctedTranscription);
+
+          const res = await fetch("/api/dictations/voice-edit", {
+            method: "POST",
+            body: formData,
+          });
+
+          if (!res.ok) {
+            const err = await res.json();
+            throw new Error(err.error || "Voice edit failed");
+          }
+
+          const { transcript, instruction } = await res.json();
+          if (instruction) {
+            setLastEditInstruction(instruction);
+          }
+          if (transcript) {
+            setCorrectedTranscription(transcript);
+          }
+        } catch (err: any) {
+          toast({ title: "Voice edit failed", description: err.message, variant: "destructive" });
+        } finally {
+          setVoiceEditProcessing(false);
+        }
+      };
+
+      recorder.onerror = () => {
+        setIsVoiceEditing(false);
+        setVoiceEditProcessing(false);
+        if (voiceEditStreamRef.current) {
+          voiceEditStreamRef.current.getTracks().forEach((t) => t.stop());
+          voiceEditStreamRef.current = null;
+        }
+        toast({ title: "Recording error", description: "Voice edit recording failed.", variant: "destructive" });
+      };
+
+      recorder.start();
+      voiceEditRecorderRef.current = recorder;
+      setIsVoiceEditing(true);
+      setLastEditInstruction("");
+    } catch {
+      toast({ title: "Microphone access denied", variant: "destructive" });
+    }
+  }, [correctedTranscription, toast]);
+
+  const stopVoiceEdit = useCallback(() => {
+    const recorder = voiceEditRecorderRef.current;
+    if (recorder && recorder.state === "recording") {
+      recorder.stop();
+    }
+  }, []);
+
   const resetDictation = () => {
     setPhase("idle");
     setRawTranscription("");
@@ -415,6 +501,7 @@ export default function DictationPage() {
     setEditableImpressions("");
     setCurrentDictation(null);
     setMatchedTemplate(null);
+    setLastEditInstruction("");
   };
 
   const isProcessing = phase !== "idle" && phase !== "complete" && phase !== "error" && phase !== "recording";
@@ -556,12 +643,42 @@ export default function DictationPage() {
           )}
 
           {correctedTranscription && !isRecording && (
-            <Card className="p-4 space-y-2 border-primary/30">
-              <div className="flex items-center gap-2">
-                <Sparkles className="w-4 h-4 text-primary" />
-                <h3 className="text-sm font-medium text-primary uppercase tracking-wider">Corrected Transcription</h3>
+            <Card className="p-4 space-y-3 border-primary/30">
+              <div className="flex items-center justify-between gap-4 flex-wrap">
+                <div className="flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-primary" />
+                  <h3 className="text-sm font-medium text-primary uppercase tracking-wider">Corrected Transcription</h3>
+                </div>
+                <div className="flex items-center gap-2">
+                  {voiceEditProcessing && (
+                    <Badge variant="secondary">
+                      <Loader2 className="w-3 h-3 animate-spin mr-1" />
+                      Applying edit...
+                    </Badge>
+                  )}
+                  {isVoiceEditing && (
+                    <Badge variant="secondary" className="bg-red-600 text-white">
+                      <div className="w-2 h-2 rounded-full bg-white animate-pulse mr-1.5" />
+                      Listening...
+                    </Badge>
+                  )}
+                  <Button
+                    size="icon"
+                    variant={isVoiceEditing ? "destructive" : "outline"}
+                    onClick={isVoiceEditing ? stopVoiceEdit : startVoiceEdit}
+                    disabled={voiceEditProcessing || isProcessing}
+                    data-testid="button-voice-edit"
+                  >
+                    {isVoiceEditing ? <Square className="w-4 h-4" fill="currentColor" /> : <Mic className="w-4 h-4" />}
+                  </Button>
+                </div>
               </div>
               <p className="text-sm font-mono leading-relaxed" data-testid="text-corrected-transcription">{correctedTranscription}</p>
+              {lastEditInstruction && (
+                <p className="text-xs text-muted-foreground italic" data-testid="text-last-edit-instruction">
+                  Last edit: "{lastEditInstruction}"
+                </p>
+              )}
             </Card>
           )}
 

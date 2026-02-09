@@ -58,6 +58,37 @@ Your task is to convert raw speech-to-text output into clean, clinically correct
   return response.choices[0]?.message?.content || rawTranscription;
 }
 
+export async function applyVoiceEdit(
+  currentTranscript: string,
+  editInstruction: string
+): Promise<string> {
+  if (!process.env.OPENAI_API_KEY) {
+    throw new Error("OPENAI_API_KEY is not configured. Please set it in Secrets.");
+  }
+
+  const response = await openai.chat.completions.create({
+    model: "gpt-4o",
+    messages: [
+      {
+        role: "system",
+        content: `You are a precise text editor for radiology transcripts.
+You will receive the current transcript and a voice instruction describing what to change.
+Apply ONLY the requested change. Do not modify anything else.
+Return the full updated transcript with the edit applied.
+Preserve all formatting, punctuation, and structure.
+If the instruction is unclear, make your best interpretation in a radiology context.`,
+      },
+      {
+        role: "user",
+        content: `Current transcript:\n${currentTranscript}\n\nEdit instruction:\n${editInstruction}`,
+      },
+    ],
+    max_completion_tokens: 4000,
+  });
+
+  return response.choices[0]?.message?.content || currentTranscript;
+}
+
 export async function identifyRegionAndTemplate(
   transcription: string,
   templates: Template[],
