@@ -8,7 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { Mic, MicOff, Square, Loader2, Copy, Check, FileText, Activity, ClipboardCheck, Sparkles } from "lucide-react";
+import { Mic, MicOff, Square, Loader2, Copy, Check, Activity, ClipboardCheck, Sparkles } from "lucide-react";
 import type { Template, Dictation } from "@shared/schema";
 
 type PipelinePhase = "idle" | "recording" | "transcribing" | "correcting" | "identifying" | "mapping" | "impressions" | "complete" | "error";
@@ -534,7 +534,7 @@ export default function DictationPage() {
       </div>
 
       <div className="flex-1 overflow-auto">
-        <div className="max-w-4xl mx-auto p-6 space-y-6">
+        <div className="max-w-4xl mx-auto p-4 space-y-3">
           {!showReport && (
             <>
               <div className="flex items-center gap-3">
@@ -632,18 +632,8 @@ export default function DictationPage() {
             </>
           )}
 
-          {rawTranscription && !isRecording && phase !== "transcribing" && (
-            <Card className="p-4 space-y-2">
-              <div className="flex items-center gap-2">
-                <FileText className="w-4 h-4 text-muted-foreground" />
-                <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">Raw Transcription</h3>
-              </div>
-              <p className="text-sm font-mono leading-relaxed text-muted-foreground" data-testid="text-raw-transcription">{rawTranscription}</p>
-            </Card>
-          )}
-
           {correctedTranscription && !isRecording && (
-            <Card className="p-4 space-y-3 border-primary/30">
+            <Card className="p-3 space-y-2 border-primary/30">
               <div className="flex items-center justify-between gap-4 flex-wrap">
                 <div className="flex items-center gap-2">
                   <Sparkles className="w-4 h-4 text-primary" />
@@ -694,49 +684,53 @@ export default function DictationPage() {
           )}
 
           {showReport && displayTemplate && (
-            <div className="space-y-4">
-              <div className="flex items-center justify-between gap-4 flex-wrap">
-                <div className="flex items-center gap-2">
-                  <ClipboardCheck className="w-5 h-5 text-primary" />
-                  <h2 className="font-semibold text-lg">
-                    {displayTemplate.name} {displayTemplate.modality} Report
-                  </h2>
-                </div>
-                <Button onClick={copyReport} variant="outline" size="sm" data-testid="button-copy-report">
-                  {copied ? <Check className="w-4 h-4 mr-2" /> : <Copy className="w-4 h-4 mr-2" />}
-                  {copied ? "Copied" : "Copy Report"}
-                </Button>
+            <div className="space-y-2">
+              <Button
+                onClick={copyReport}
+                variant="destructive"
+                className="w-full font-semibold"
+                data-testid="button-copy-report"
+              >
+                {copied ? <Check className="w-5 h-5 mr-2" /> : <Copy className="w-5 h-5 mr-2" />}
+                {copied ? "Copied to Clipboard" : "Copy Report"}
+              </Button>
+
+              <div className="flex items-center gap-2 px-1">
+                <ClipboardCheck className="w-4 h-4 text-primary" />
+                <h2 className="font-semibold text-sm">
+                  {displayTemplate.name} {displayTemplate.modality} Report
+                </h2>
               </div>
 
-              <div className="space-y-3">
+              <div className="space-y-1">
                 {(displayTemplate.sections as Array<{ name: string; key: string }>).map((section) => (
-                  <Card key={section.key} className="p-4 space-y-2">
-                    <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                  <div key={section.key} className="px-1">
+                    <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
                       {section.name}
                     </label>
                     <Textarea
                       value={editableReport[section.key] || ""}
                       onChange={(e) => handleSectionEdit(section.key, e.target.value)}
                       className="resize-none border-0 bg-transparent text-sm focus-visible:ring-0 font-mono"
-                      rows={Math.max(2, (editableReport[section.key] || "").split("\n").length)}
+                      rows={Math.max(1, (editableReport[section.key] || "").split("\n").length)}
                       data-testid={`textarea-section-${section.key}`}
                     />
-                  </Card>
+                  </div>
                 ))}
               </div>
 
-              <Card className="p-4 space-y-2 border-primary/30">
-                <label className="text-xs font-medium text-primary uppercase tracking-wider">
+              <div className="border-t border-primary/30 pt-1 px-1">
+                <label className="text-[10px] font-medium text-primary uppercase tracking-wider">
                   Impression
                 </label>
                 <Textarea
                   value={editableImpressions}
                   onChange={(e) => setEditableImpressions(e.target.value)}
                   className="resize-none border-0 bg-transparent text-sm focus-visible:ring-0 font-mono"
-                  rows={Math.max(3, editableImpressions.split("\n").length)}
+                  rows={Math.max(1, editableImpressions.split("\n").length)}
                   data-testid="textarea-impressions"
                 />
-              </Card>
+              </div>
             </div>
           )}
         </div>
