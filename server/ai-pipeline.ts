@@ -9,9 +9,12 @@ if (!process.env.GROQ_API_KEY) {
 
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
+if (!process.env.OPENAI_API_KEY) {
+  console.warn("OPENAI_API_KEY is not set. AI processing will not work.");
+}
+
 const openai = new OpenAI({
-  apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
-  baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
+  apiKey: process.env.OPENAI_API_KEY,
 });
 
 export async function transcribeAudio(audioBuffer: Buffer): Promise<string> {

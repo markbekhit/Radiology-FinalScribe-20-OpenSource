@@ -6,7 +6,7 @@ A professional web-based AI radiology dictation tool for MSK (Musculoskeletal) r
 ## Architecture
 - **Frontend**: React + Vite + Tailwind CSS + Shadcn UI (dark radiology theme)
 - **Backend**: Express.js + PostgreSQL (Drizzle ORM)
-- **AI Pipeline**: Groq Whisper (transcription) + OpenAI GPT-4o (structured mapping via AI Integrations)
+- **AI Pipeline**: Groq Whisper (transcription) + OpenAI GPT-4o (structured mapping via user's own API key)
 
 ## Key Features
 - Admin Center: Template + AI prompt management
@@ -24,7 +24,7 @@ A professional web-based AI radiology dictation tool for MSK (Musculoskeletal) r
 
 ## Environment
 - `GROQ_API_KEY` - For Whisper transcription
-- `AI_INTEGRATIONS_OPENAI_*` - For GPT-4o (managed by Replit)
+- `OPENAI_API_KEY` - For GPT-4o (user's own key, direct to OpenAI)
 - `DATABASE_URL` - PostgreSQL
 
 ## Design
