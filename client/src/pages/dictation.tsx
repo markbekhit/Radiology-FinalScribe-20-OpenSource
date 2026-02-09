@@ -539,20 +539,22 @@ export default function DictationPage() {
   }, []);
 
   const remapReport = async () => {
-    if (!correctedTranscription || !displayTemplate) return;
+    if (!correctedTranscription) return;
     setIsRemapping(true);
     try {
-      const res = await apiRequest("POST", "/api/dictations/remap", {
-        transcription: correctedTranscription,
-        templateId: displayTemplate.id,
-      });
-      const { structuredReport: newReport, impressions: newImpressions } = await res.json();
+      const body: Record<string, unknown> = { transcription: correctedTranscription };
+      if (selectedTemplateId && selectedTemplateId !== "auto") {
+        body.preSelectedTemplateId = Number(selectedTemplateId);
+      }
+      const res = await apiRequest("POST", "/api/dictations/remap", body);
+      const { template, structuredReport: newReport, impressions: newImpressions } = await res.json();
+      setMatchedTemplate(template);
       setStructuredReport(newReport);
       setImpressions(newImpressions);
-      const merged = buildMergedReport(newReport, newImpressions, displayTemplate);
+      const merged = buildMergedReport(newReport, newImpressions, template);
       setFullReportText(merged);
       setTranscriptEdited(false);
-      toast({ title: "Report updated from edited transcript" });
+      toast({ title: "Report regenerated from edited transcript" });
     } catch (err: any) {
       toast({ title: "Re-map failed", description: err.message, variant: "destructive" });
     } finally {

@@ -359,31 +359,52 @@ export async function registerRoutes(
 
   app.post("/api/dictations/remap", async (req, res) => {
     try {
-      const { transcription, templateId } = req.body;
-      if (!transcription || !templateId) {
-        return res.status(400).json({ error: "transcription and templateId required" });
+      const { transcription, preSelectedTemplateId } = req.body;
+      if (!transcription) {
+        return res.status(400).json({ error: "transcription is required" });
       }
 
-      const template = await storage.getTemplate(templateId);
-      if (!template) {
-        return res.status(404).json({ error: "Template not found" });
+      const allTemplates = await storage.getTemplates();
+      const activeTemplates = allTemplates.filter((t) => t.isActive);
+
+      let matchedTemplate;
+      if (preSelectedTemplateId) {
+        matchedTemplate = await storage.getTemplate(preSelectedTemplateId);
+      } else {
+        const regionPrompt = await storage.getPromptByType("region_identification");
+        const identification = await identifyRegionAndTemplate(
+          transcription,
+          activeTemplates,
+          regionPrompt?.content
+        );
+        if (identification.templateId) {
+          matchedTemplate = await storage.getTemplate(identification.templateId);
+        }
+      }
+
+      if (!matchedTemplate && activeTemplates.length > 0) {
+        matchedTemplate = activeTemplates[0];
+      }
+
+      if (!matchedTemplate) {
+        return res.status(400).json({ error: "No template available" });
       }
 
       const mappingPrompt = await storage.getPromptByType("structured_mapping");
       const structuredReport = await mapToStructuredReport(
         transcription,
-        template,
+        matchedTemplate,
         mappingPrompt?.content
       );
 
       const impressionsPrompt = await storage.getPromptByType("impressions");
       const impressionsText = await generateImpressions(
         structuredReport,
-        template,
+        matchedTemplate,
         impressionsPrompt?.content
       );
 
-      res.json({ structuredReport, impressions: impressionsText });
+      res.json({ template: matchedTemplate, structuredReport, impressions: impressionsText });
     } catch (error: any) {
       console.error("Remap error:", error);
       res.status(500).json({ error: error.message || "Remap failed" });
