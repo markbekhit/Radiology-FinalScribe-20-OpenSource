@@ -8,7 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { Mic, Square, Loader2, Copy, Check, Activity, ClipboardCheck, Sparkles, RefreshCw, Pause, Play } from "lucide-react";
+import { Mic, Square, Loader2, Copy, Check, ClipboardCheck, Sparkles, RefreshCw, Pause, Play } from "lucide-react";
 import type { Template, Dictation } from "@shared/schema";
 
 type PipelinePhase = "idle" | "recording" | "transcribing" | "correcting" | "identifying" | "mapping" | "impressions" | "complete" | "error";
@@ -93,7 +93,7 @@ export default function DictationPage() {
   const pendingCountRef = useRef(0);
   const finalStopResolveRef = useRef<(() => void) | null>(null);
 
-  const { data: templates = [], isLoading: templatesLoading } = useQuery<Template[]>({
+  const { data: templates = [] } = useQuery<Template[]>({
     queryKey: ["/api/templates"],
   });
 
@@ -611,9 +611,69 @@ export default function DictationPage() {
   return (
     <div className="flex flex-col h-full">
       <div className="flex items-center justify-between gap-4 flex-wrap p-4 border-b border-border">
-        <div className="flex items-center gap-2">
-          <Activity className="w-5 h-5 text-primary" />
-          <h1 className="text-lg font-semibold tracking-tight">Dictation</h1>
+        <div className="flex items-center gap-3">
+          <Select
+            value={selectedTemplateId}
+            onValueChange={setSelectedTemplateId}
+            disabled={isRecording || isProcessing}
+          >
+            <SelectTrigger className="w-52" data-testid="select-template">
+              <SelectValue placeholder="Auto-detect template" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="auto">Auto-detect template</SelectItem>
+              {activeTemplates.map((t) => (
+                <SelectItem key={t.id} value={t.id.toString()}>{t.name} ({t.modality})</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <div className="relative">
+            {isRecording && !isPaused && (
+              <div className="absolute inset-0 rounded-full bg-red-500/20 animate-pulse" style={{ margin: "-4px" }} />
+            )}
+            <Button
+              size="icon"
+              variant={isRecording ? "destructive" : "default"}
+              onClick={handleRecordClick}
+              disabled={isProcessing}
+              className={isPaused ? "bg-yellow-600 text-white border-yellow-700" : ""}
+              data-testid="button-record"
+            >
+              {isProcessing ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : isRecording ? (
+                <Square className="w-4 h-4" fill="currentColor" />
+              ) : (
+                <Mic className="w-4 h-4" />
+              )}
+            </Button>
+          </div>
+
+          {isRecording && (
+            <Button
+              size="icon"
+              variant="outline"
+              onClick={isPaused ? resumeRecording : pauseRecording}
+              data-testid="button-pause"
+            >
+              {isPaused ? <Play className="w-4 h-4" /> : <Pause className="w-4 h-4" />}
+            </Button>
+          )}
+
+          {isRecording && !isPaused && (
+            <div className="flex items-center gap-1.5 w-24" data-testid="audio-level-meter">
+              <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-red-500 rounded-full transition-all duration-75"
+                  style={{ width: `${audioLevel * 100}%` }}
+                />
+              </div>
+              <span className="text-[10px] text-muted-foreground font-mono w-6 text-right">
+                {isSpeakingRef.current ? "VOX" : "---"}
+              </span>
+            </div>
+          )}
         </div>
         <div className="flex items-center gap-3">
           {phase !== "idle" && (
@@ -641,118 +701,28 @@ export default function DictationPage() {
 
       <div className="flex-1 overflow-auto">
         <div className="max-w-4xl mx-auto p-4 space-y-3">
-          {!showReport && (
-            <>
-              <div className="flex items-center gap-3">
-                <Select
-                  value={selectedTemplateId}
-                  onValueChange={setSelectedTemplateId}
-                  disabled={isRecording || isProcessing}
-                >
-                  <SelectTrigger className="w-64" data-testid="select-template">
-                    <SelectValue placeholder="Auto-detect template" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="auto">Auto-detect template</SelectItem>
-                    {activeTemplates.map((t) => (
-                      <SelectItem key={t.id} value={t.id.toString()}>{t.name} ({t.modality})</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {templatesLoading && <Skeleton className="w-64 h-9" />}
-              </div>
-
-              <div className="flex flex-col items-center justify-center py-12 space-y-8">
-                <div className="relative">
-                  {isRecording && !isPaused && (
-                    <>
-                      <div className="absolute inset-0 rounded-full bg-red-500/20 animate-pulse-ring" style={{ margin: "-16px" }} />
-                      <div className="absolute inset-0 rounded-full bg-red-500/10 animate-pulse-ring" style={{ margin: "-32px", animationDelay: "0.5s" }} />
-                    </>
-                  )}
-                  <button
-                    onClick={handleRecordClick}
-                    disabled={isProcessing}
-                    className={`relative w-28 h-28 rounded-full flex items-center justify-center transition-all duration-300 ${
-                      isRecording
-                        ? isPaused ? "bg-yellow-600 scale-105" : "bg-red-600 scale-110"
-                        : isProcessing
-                          ? "bg-muted cursor-not-allowed"
-                          : "bg-primary hover:bg-primary/90 hover:scale-105"
-                    }`}
-                    data-testid="button-record"
-                  >
-                    {isProcessing ? (
-                      <Loader2 className="w-10 h-10 text-muted-foreground animate-spin" />
-                    ) : isRecording ? (
-                      <Square className="w-10 h-10 text-white" fill="white" />
-                    ) : (
-                      <Mic className="w-10 h-10 text-white" />
-                    )}
-                  </button>
-                </div>
-
-                {isRecording && (
-                  <Button
-                    size="lg"
-                    variant="outline"
-                    onClick={isPaused ? resumeRecording : pauseRecording}
-                    data-testid="button-pause"
-                  >
-                    {isPaused ? <Play className="w-4 h-4 mr-2" /> : <Pause className="w-4 h-4 mr-2" />}
-                    {isPaused ? "Resume" : "Pause"}
-                  </Button>
-                )}
-
-                {isRecording && !isPaused && (
-                  <div className="flex items-center gap-2 w-full max-w-xs" data-testid="audio-level-meter">
-                    <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
-                      <div
-                        className="h-full bg-red-500 rounded-full transition-all duration-75"
-                        style={{ width: `${audioLevel * 100}%` }}
-                      />
-                    </div>
-                    <span className="text-[10px] text-muted-foreground font-mono w-8 text-right">
-                      {isSpeakingRef.current ? "VOX" : "---"}
-                    </span>
-                  </div>
-                )}
-
-                <p className="text-sm text-muted-foreground text-center max-w-md">
-                  {isRecording
-                    ? isPaused
-                      ? "Paused — tap Resume to continue or Stop to finish"
-                      : "Recording... Chunks sent on natural pauses"
-                    : isProcessing
-                      ? phaseLabels[phase]
-                      : "Tap to start recording your radiology dictation"}
-                </p>
-
-                {(isRecording || (isProcessing && phase === "transcribing")) && liveTranscript && (
-                  <Card className="w-full max-w-lg p-4 space-y-2">
-                    <div className="flex items-center gap-2">
-                      <div className={`w-2 h-2 rounded-full ${isRecording ? "bg-red-500 animate-pulse" : "bg-primary"}`} />
-                      <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Live Transcript</h3>
-                      {chunksPending > 0 && (
-                        <Loader2 className="w-3 h-3 text-muted-foreground animate-spin ml-auto" />
-                      )}
-                    </div>
-                    <p className="text-sm font-mono leading-relaxed text-foreground/80" data-testid="text-live-transcript">
-                      {liveTranscript}
-                    </p>
-                  </Card>
-                )}
-
-                {isProcessing && phase !== "transcribing" && (
-                  <div className="w-full max-w-sm">
-                    <PipelineProgress phase={phase} />
-                  </div>
-                )}
-              </div>
-            </>
+          {isProcessing && phase !== "transcribing" && (
+            <div className="w-full max-w-sm mx-auto">
+              <PipelineProgress phase={phase} />
+            </div>
           )}
 
-          {correctedTranscription && !isRecording && (
+          {liveTranscript && !correctedTranscription && (
+            <Card className="p-3 space-y-2 border-primary/30">
+              <div className="flex items-center gap-2">
+                <div className={`w-2 h-2 rounded-full ${isRecording ? "bg-red-500 animate-pulse" : "bg-primary"}`} />
+                <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Live Transcript</h3>
+                {chunksPending > 0 && (
+                  <Loader2 className="w-3 h-3 text-muted-foreground animate-spin ml-auto" />
+                )}
+              </div>
+              <p className="text-sm font-mono leading-relaxed text-foreground/80" data-testid="text-live-transcript">
+                {liveTranscript}
+              </p>
+            </Card>
+          )}
+
+          {correctedTranscription && (
             <Card className="p-3 space-y-2 border-primary/30">
               <div className="flex items-center justify-between gap-4 flex-wrap">
                 <div className="flex items-center gap-2">
