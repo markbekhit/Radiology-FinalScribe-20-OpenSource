@@ -77,6 +77,7 @@ export const dictations = pgTable("dictations", {
   id: serial("id").primaryKey(),
   templateId: integer("template_id").references(() => templates.id),
   rawTranscription: text("raw_transcription"),
+  correctedTranscription: text("corrected_transcription"),
   identifiedRegion: text("identified_region"),
   structuredReport: jsonb("structured_report").$type<Record<string, string>>(),
   impressions: text("impressions"),
