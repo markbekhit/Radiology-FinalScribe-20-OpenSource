@@ -29,6 +29,21 @@ const SILENCE_THRESHOLD = 0.015;
 const SILENCE_DURATION_MS = 600;
 const MIN_CHUNK_DURATION_MS = 800;
 
+function buildMergedReport(report: Record<string, string>, impressionsText: string, template: Template | null | undefined) {
+  const sections = (template?.sections as Array<{ name: string; key: string }>) || [];
+  let text = "";
+  for (const section of sections) {
+    const val = String(report[section.key] ?? "");
+    if (val) {
+      text += `${section.name.toUpperCase()}:\n${val}\n\n`;
+    }
+  }
+  if (impressionsText) {
+    text += `IMPRESSION:\n${impressionsText}`;
+  }
+  return text.trimEnd();
+}
+
 export default function DictationPage() {
   const { toast } = useToast();
   const [phase, setPhase] = useState<PipelinePhase>("idle");
@@ -38,8 +53,7 @@ export default function DictationPage() {
   const [liveTranscript, setLiveTranscript] = useState("");
   const [structuredReport, setStructuredReport] = useState<Record<string, string>>({});
   const [impressions, setImpressions] = useState("");
-  const [editableReport, setEditableReport] = useState<Record<string, string>>({});
-  const [editableImpressions, setEditableImpressions] = useState("");
+  const [fullReportText, setFullReportText] = useState("");
   const [currentDictation, setCurrentDictation] = useState<Dictation | null>(null);
   const [copied, setCopied] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
@@ -70,6 +84,13 @@ export default function DictationPage() {
   });
 
   const activeTemplates = templates.filter((t) => t.isActive);
+
+  useEffect(() => {
+    if (matchedTemplate && (Object.keys(structuredReport).length > 0 || impressions)) {
+      const merged = buildMergedReport(structuredReport, impressions, matchedTemplate);
+      setFullReportText(merged);
+    }
+  }, [structuredReport, impressions, matchedTemplate]);
 
   const sendChunkForTranscription = useCallback(async (audioBlob: Blob, segmentIndex: number) => {
     if (audioBlob.size < 1000) return;
@@ -208,8 +229,7 @@ export default function DictationPage() {
       setCorrectedTranscription("");
       setStructuredReport({});
       setImpressions("");
-      setEditableReport({});
-      setEditableImpressions("");
+      setFullReportText("");
       setCurrentDictation(null);
       setMatchedTemplate(null);
       setAudioLevel(0);
@@ -324,18 +344,17 @@ export default function DictationPage() {
                 break;
               case "structured_report":
                 setStructuredReport(event.data);
-                setEditableReport(event.data);
                 break;
               case "impressions":
                 setImpressions(event.data);
-                setEditableImpressions(event.data);
                 break;
               case "dictation":
                 setCurrentDictation(event.data);
                 break;
-              case "complete":
+              case "complete": {
                 setPhase("complete");
                 break;
+              }
               case "error":
                 throw new Error(event.message);
             }
@@ -383,31 +402,9 @@ export default function DictationPage() {
     }
   };
 
-  const handleSectionEdit = (key: string, value: string) => {
-    setEditableReport((prev) => ({ ...prev, [key]: value }));
-  };
 
   const copyReport = () => {
-    const template = matchedTemplate || activeTemplates.find((t) => t.id.toString() === selectedTemplateId);
-    let reportText = "";
-
-    if (template) {
-      reportText += `${template.name.toUpperCase()} ${template.modality}\n\n`;
-    }
-
-    const sections = template?.sections as Array<{ name: string; key: string }> || [];
-    for (const section of sections) {
-      const val = editableReport[section.key];
-      if (val) {
-        reportText += `${section.name.toUpperCase()}:\n${val}\n\n`;
-      }
-    }
-
-    if (editableImpressions) {
-      reportText += `IMPRESSION:\n${editableImpressions}\n`;
-    }
-
-    navigator.clipboard.writeText(reportText);
+    navigator.clipboard.writeText(fullReportText);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
     toast({ title: "Report copied to clipboard" });
@@ -415,14 +412,13 @@ export default function DictationPage() {
 
   const getTextForTarget = useCallback((target: string): string => {
     if (target === "corrected") return correctedTranscription;
-    if (target === "impressions") return editableImpressions;
-    return String(editableReport[target] ?? "");
-  }, [correctedTranscription, editableImpressions, editableReport]);
+    if (target === "report") return fullReportText;
+    return "";
+  }, [correctedTranscription, fullReportText]);
 
   const applyEditResult = useCallback((target: string, text: string) => {
     if (target === "corrected") setCorrectedTranscription(text);
-    else if (target === "impressions") setEditableImpressions(text);
-    else setEditableReport((prev) => ({ ...prev, [target]: text }));
+    else if (target === "report") setFullReportText(text);
   }, []);
 
   const startVoiceEdit = useCallback(async (target: string) => {
@@ -506,15 +502,14 @@ export default function DictationPage() {
     setLiveTranscript("");
     setStructuredReport({});
     setImpressions("");
-    setEditableReport({});
-    setEditableImpressions("");
+    setFullReportText("");
     setCurrentDictation(null);
     setMatchedTemplate(null);
     setLastEditInstruction("");
   };
 
   const isProcessing = phase !== "idle" && phase !== "complete" && phase !== "error" && phase !== "recording";
-  const showReport = phase === "complete" || Object.keys(structuredReport).length > 0;
+  const showReport = phase === "complete" || fullReportText.length > 0;
   const displayTemplate = matchedTemplate || activeTemplates.find((t) => t.id.toString() === selectedTemplateId);
 
   return (
@@ -699,84 +694,51 @@ export default function DictationPage() {
           )}
 
           {showReport && displayTemplate && (
-            <div className="space-y-2">
-              <div className="flex items-center gap-2 px-1">
-                <ClipboardCheck className="w-4 h-4 text-primary" />
-                <h2 className="font-semibold text-sm">
-                  {displayTemplate.name} {displayTemplate.modality} Report
-                </h2>
-              </div>
-
-              <div className="space-y-1">
-                {(displayTemplate.sections as Array<{ name: string; key: string }>).map((section) => (
-                  <div key={section.key} className="px-1">
-                    <div className="flex items-center justify-between gap-2">
-                      <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
-                        {section.name}
-                      </label>
-                      <div className="flex items-center gap-1">
-                        {voiceEditProcessingTarget === section.key && (
-                          <Loader2 className="w-3 h-3 animate-spin text-muted-foreground" />
-                        )}
-                        {voiceEditTarget === section.key && (
-                          <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
-                        )}
-                        <Button
-                          size="icon"
-                          variant={voiceEditTarget === section.key ? "destructive" : "ghost"}
-                          className="h-5 w-5"
-                          onClick={voiceEditTarget === section.key ? stopVoiceEdit : () => startVoiceEdit(section.key)}
-                          disabled={voiceEditProcessingTarget !== null && voiceEditProcessingTarget !== section.key}
-                          data-testid={`button-voice-edit-${section.key}`}
-                        >
-                          {voiceEditTarget === section.key ? <Square className="w-3 h-3" fill="currentColor" /> : <Mic className="w-3 h-3" />}
-                        </Button>
-                      </div>
-                    </div>
-                    <Textarea
-                      value={String(editableReport[section.key] ?? "")}
-                      onChange={(e) => handleSectionEdit(section.key, e.target.value)}
-                      className="resize-none border-0 bg-transparent text-sm focus-visible:ring-0 font-mono"
-                      rows={Math.max(1, String(editableReport[section.key] ?? "").split("\n").length)}
-                      data-testid={`textarea-section-${section.key}`}
-                    />
-                  </div>
-                ))}
-              </div>
-
-              <div className="border-t border-primary/30 pt-1 px-1">
-                <div className="flex items-center justify-between gap-2">
-                  <label className="text-[10px] font-medium text-primary uppercase tracking-wider">
-                    Impression
-                  </label>
-                  <div className="flex items-center gap-1">
-                    {voiceEditProcessingTarget === "impressions" && (
-                      <Loader2 className="w-3 h-3 animate-spin text-primary" />
-                    )}
-                    {voiceEditTarget === "impressions" && (
-                      <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
-                    )}
-                    <Button
-                      size="icon"
-                      variant={voiceEditTarget === "impressions" ? "destructive" : "ghost"}
-                      className="h-5 w-5"
-                      onClick={voiceEditTarget === "impressions" ? stopVoiceEdit : () => startVoiceEdit("impressions")}
-                      disabled={voiceEditProcessingTarget !== null && voiceEditProcessingTarget !== "impressions"}
-                      data-testid="button-voice-edit-impressions"
-                    >
-                      {voiceEditTarget === "impressions" ? <Square className="w-3 h-3" fill="currentColor" /> : <Mic className="w-3 h-3" />}
-                    </Button>
-                  </div>
+            <Card className="p-3 space-y-2">
+              <div className="flex items-center justify-between gap-4 flex-wrap">
+                <div className="flex items-center gap-2">
+                  <ClipboardCheck className="w-4 h-4 text-primary" />
+                  <h2 className="font-semibold text-sm">
+                    {displayTemplate.name} {displayTemplate.modality} Report
+                  </h2>
                 </div>
-                <Textarea
-                  value={editableImpressions}
-                  onChange={(e) => setEditableImpressions(e.target.value)}
-                  className="resize-none border-0 bg-transparent text-sm focus-visible:ring-0 font-mono"
-                  rows={Math.max(1, String(editableImpressions || "").split("\n").length)}
-                  data-testid="textarea-impressions"
-                />
+                <div className="flex items-center gap-2">
+                  {voiceEditProcessingTarget === "report" && (
+                    <Badge variant="secondary">
+                      <Loader2 className="w-3 h-3 animate-spin mr-1" />
+                      Applying edit...
+                    </Badge>
+                  )}
+                  {voiceEditTarget === "report" && (
+                    <Badge variant="secondary" className="bg-red-600 text-white">
+                      <div className="w-2 h-2 rounded-full bg-white animate-pulse mr-1.5" />
+                      Listening...
+                    </Badge>
+                  )}
+                  <Button
+                    size="icon"
+                    variant={voiceEditTarget === "report" ? "destructive" : "outline"}
+                    onClick={voiceEditTarget === "report" ? stopVoiceEdit : () => startVoiceEdit("report")}
+                    disabled={voiceEditProcessingTarget !== null}
+                    data-testid="button-voice-edit-report"
+                  >
+                    {voiceEditTarget === "report" ? <Square className="w-4 h-4" fill="currentColor" /> : <Mic className="w-4 h-4" />}
+                  </Button>
+                </div>
               </div>
-            </div>
+              <Textarea
+                value={fullReportText}
+                onChange={(e) => setFullReportText(e.target.value)}
+                className="resize-none border-0 bg-transparent text-sm focus-visible:ring-0 font-mono leading-relaxed"
+                rows={Math.max(5, fullReportText.split("\n").length)}
+                data-testid="textarea-full-report"
+              />
+              {lastEditInstruction && voiceEditProcessingTarget === null && (
+                <p className="text-xs text-muted-foreground italic" data-testid="text-last-report-edit">
+                  Last edit: "{lastEditInstruction}"
+                </p>
+              )}
+            </Card>
           )}
         </div>
       </div>
