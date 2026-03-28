@@ -42,6 +42,22 @@ export async function transcribeAudio(audioBuffer: Buffer, whisperPrompt?: strin
   return transcription as unknown as string;
 }
 
+export async function transcribeAudioRaw(audioBuffer: Buffer, mimeType: string, whisperPrompt?: string): Promise<string> {
+  if (!process.env.GROQ_API_KEY) {
+    throw new Error("GROQ_API_KEY is not configured.");
+  }
+  const ext = (mimeType.split("/")[1]?.split(";")[0] || "webm").replace("mpeg", "mp3");
+  const file = await toFile(audioBuffer, `recording.${ext}`, { type: mimeType });
+  const transcription = await groq.audio.transcriptions.create({
+    file,
+    model: "whisper-large-v3-turbo",
+    language: "en",
+    response_format: "text",
+    prompt: whisperPrompt || DEFAULT_WHISPER_PROMPT,
+  });
+  return transcription as unknown as string;
+}
+
 function stripFarewells(text: string): string {
   return text
     .replace(/[,.\s]*(thank you( very much)?|thanks|many thanks|goodbye|good-?bye|cheers|that('s| is) all)[.!\s]*$/gi, "")

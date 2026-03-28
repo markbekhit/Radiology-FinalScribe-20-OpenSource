@@ -1,13 +1,15 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
+import { pool } from "./db";
+import { seedDatabase } from "./seed";
 import multer from "multer";
 import { spawn } from "child_process";
 import { writeFile, unlink, readFile } from "fs/promises";
 import { randomUUID } from "crypto";
 import { tmpdir } from "os";
 import { join } from "path";
-import { transcribeAudio, correctTranscript, applyVoiceEdit, identifyRegionAndTemplate, mapToStructuredReport, generateImpressions, generateFreeformReport } from "./ai-pipeline";
+import { transcribeAudio, transcribeAudioRaw, correctTranscript, applyVoiceEdit, identifyRegionAndTemplate, mapToStructuredReport, generateImpressions, generateFreeformReport } from "./ai-pipeline";
 import { insertTemplateSchema, insertAiPromptSchema } from "@shared/schema";
 import type { TemplateSection } from "@shared/schema";
 
@@ -101,6 +103,30 @@ export async function registerRoutes(
     }
   });
 
+  // Admin: drop + recreate templates table with correct schema, then reseed
+  app.post("/api/admin/reset-templates", async (_req, res) => {
+    try {
+      await pool.query(`
+        DROP TABLE IF EXISTS templates CASCADE;
+        CREATE TABLE templates (
+          id SERIAL PRIMARY KEY,
+          name TEXT NOT NULL,
+          region TEXT NOT NULL,
+          modality TEXT NOT NULL DEFAULT 'MRI',
+          sections JSONB NOT NULL,
+          is_active BOOLEAN NOT NULL DEFAULT true,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
+        );
+      `);
+      await seedDatabase();
+      res.json({ ok: true });
+    } catch (err: any) {
+      console.error("reset-templates error:", err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // AI Prompts CRUD
   app.get("/api/prompts", async (_req, res) => {
     try {
@@ -173,8 +199,13 @@ export async function registerRoutes(
       const whisperPromptRecord = await storage.getPromptByType("whisper_prompt");
       const whisperPrompt = whisperPromptRecord?.isActive ? whisperPromptRecord.content : undefined;
 
-      const wavBuffer = await convertToWav(audioFile.buffer);
-      const text = await transcribeAudio(wavBuffer, whisperPrompt);
+      let text: string;
+      try {
+        const wavBuffer = await convertToWav(audioFile.buffer);
+        text = await transcribeAudio(wavBuffer, whisperPrompt);
+      } catch {
+        text = await transcribeAudioRaw(audioFile.buffer, audioFile.mimetype || "audio/webm", whisperPrompt);
+      }
       res.json({ text: text.trim() });
     } catch (error: any) {
       console.error("Chunk transcription error:", error);

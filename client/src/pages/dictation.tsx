@@ -721,7 +721,7 @@ export default function DictationPage() {
             </div>
           )}
 
-          {liveTranscript && !correctedTranscription && (
+          {(isRecording || liveTranscript) && !correctedTranscription && (
             <Card className="p-3 space-y-2 border-primary/30">
               <div className="flex items-center gap-2">
                 <div className={`w-2 h-2 rounded-full ${isRecording ? "bg-red-500 animate-pulse" : "bg-primary"}`} />
@@ -730,9 +730,15 @@ export default function DictationPage() {
                   <Loader2 className="w-3 h-3 text-muted-foreground animate-spin ml-auto" />
                 )}
               </div>
-              <p className="text-sm font-mono leading-relaxed text-foreground/80" data-testid="text-live-transcript">
-                {liveTranscript}
-              </p>
+              {liveTranscript ? (
+                <p className="text-sm font-mono leading-relaxed text-foreground/80" data-testid="text-live-transcript">
+                  {liveTranscript}
+                </p>
+              ) : (
+                <p className="text-sm font-mono text-muted-foreground italic" data-testid="text-live-transcript">
+                  {isPaused ? "Paused" : "Listening… speak and pause briefly to see transcript"}
+                </p>
+              )}
             </Card>
           )}
 
