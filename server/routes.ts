@@ -103,10 +103,11 @@ export async function registerRoutes(
     }
   });
 
-  // Admin: drop + recreate templates table with correct schema, then reseed
+  // Admin: recreate all tables with correct schema, then reseed
   app.post("/api/admin/reset-templates", async (_req, res) => {
     try {
       await pool.query(`
+        DROP TABLE IF EXISTS dictations CASCADE;
         DROP TABLE IF EXISTS templates CASCADE;
         CREATE TABLE templates (
           id SERIAL PRIMARY KEY,
@@ -117,6 +118,27 @@ export async function registerRoutes(
           is_active BOOLEAN NOT NULL DEFAULT true,
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
           updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS ai_prompts (
+          id SERIAL PRIMARY KEY,
+          name TEXT NOT NULL UNIQUE,
+          prompt_type TEXT NOT NULL,
+          content TEXT NOT NULL,
+          description TEXT,
+          is_active BOOLEAN NOT NULL DEFAULT true,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS dictations (
+          id SERIAL PRIMARY KEY,
+          template_id INTEGER REFERENCES templates(id),
+          raw_transcription TEXT,
+          corrected_transcription TEXT,
+          identified_region TEXT,
+          structured_report JSONB,
+          impressions TEXT,
+          status TEXT NOT NULL DEFAULT 'recording',
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
         );
       `);
       await seedDatabase();
