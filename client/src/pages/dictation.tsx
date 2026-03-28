@@ -29,6 +29,11 @@ const SILENCE_THRESHOLD = 0.015;
 const SILENCE_DURATION_MS = 600;
 const MIN_CHUNK_DURATION_MS = 800;
 
+function getSupportedMimeType(): string {
+  const candidates = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/ogg;codecs=opus"];
+  return candidates.find((t) => MediaRecorder.isTypeSupported(t)) ?? "";
+}
+
 function extractText(val: unknown): string {
   if (typeof val === "string") return val;
   if (val && typeof val === "object") {
@@ -141,7 +146,8 @@ export default function DictationPage() {
   }, []);
 
   const startNewRecorder = useCallback((stream: MediaStream) => {
-    const recorder = new MediaRecorder(stream, { mimeType: "audio/webm;codecs=opus" });
+    const mimeType = getSupportedMimeType();
+    const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : {});
     const localChunks: Blob[] = [];
     const segmentIndex = transcriptSegmentsRef.current.length;
     transcriptSegmentsRef.current.push("");
@@ -251,8 +257,15 @@ export default function DictationPage() {
       setTranscriptEdited(false);
 
       vadFrameRef.current = requestAnimationFrame(runVAD);
-    } catch {
-      toast({ title: "Microphone access denied", description: "Please allow microphone access to record dictations.", variant: "destructive" });
+    } catch (err: any) {
+      const isPermissionError = err?.name === "NotAllowedError" || err?.name === "PermissionDeniedError";
+      toast({
+        title: isPermissionError ? "Microphone access denied" : "Could not start recording",
+        description: isPermissionError
+          ? "Please allow microphone access in your browser and System Preferences → Privacy & Security → Microphone."
+          : err?.message || "An unexpected error occurred.",
+        variant: "destructive",
+      });
     }
   }, [toast, startNewRecorder, runVAD]);
 
@@ -480,7 +493,8 @@ export default function DictationPage() {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       voiceEditStreamRef.current = stream;
-      const recorder = new MediaRecorder(stream, { mimeType: "audio/webm;codecs=opus" });
+      const mimeType = getSupportedMimeType();
+      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : {});
       const chunks: Blob[] = [];
 
       recorder.ondataavailable = (e) => {
