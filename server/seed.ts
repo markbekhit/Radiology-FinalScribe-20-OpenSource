@@ -251,14 +251,7 @@ export async function seedDatabase() {
   await storage.createPrompt({
     name: "Whisper Transcription Prompt",
     promptType: "whisper_prompt",
-    content: `Radiology dictation. MSK MRI report. Medical terminology:
-Anatomy: ACL, PCL, MCL, LCL, meniscus, menisci, labrum, rotator cuff, supraspinatus, infraspinatus, subscapularis, teres minor, biceps tendon, patellar tendon, quadriceps tendon, Achilles tendon, plantar fascia, iliopsoas, gluteus medius, gluteus minimus, trochanteric bursa, Baker's cyst.
-Spine: L1, L2, L3, L4, L5, C1-C7, T1-T12, lumbar, cervical, thoracic, neural foramina, facet joint, pedicle, ligamentum flavum, thecal sac, conus medullaris, cauda equina, annular fissure, Schmorl's node.
-Imaging: MRI, CT, X-ray, ultrasound, sagittal, axial, coronal, T1, T2, T2-weighted, PD, STIR, FLAIR, fat-suppressed, gadolinium, contrast-enhanced.
-Pathology: bone marrow edema, osteochondral lesion, chondromalacia, tendinopathy, tendinosis, tendinitis, bursitis, effusion, synovitis, Bankart lesion, Hill-Sachs deformity, SLAP tear, femoroacetabular impingement, FAI, cam morphology, pincer impingement, enthesopathy, spondylosis, spondylolisthesis, spondylolysis, spinal stenosis, myelopathy, radiculopathy, disc herniation, disc protrusion, disc extrusion, sequestration, osseous edema, avascular necrosis, AVN, stress fracture, insufficiency fracture, periosteal reaction.
-Grades: grade 1, grade 2, grade 3, partial thickness tear, full thickness tear, high-grade partial tear, low-grade partial tear, complete tear, interstitial tear.
-Measurements: millimeter, millimeters, centimeter, centimeters, mm, cm.
-Verbal commands: period, full stop, comma, colon, semicolon, new line, next line, new paragraph, open bracket, close bracket, hyphen, dash.`,
+    content: `Radiology MSK MRI dictation. Anatomy: ACL, PCL, MCL, LCL, meniscus, menisci, labrum, rotator cuff, supraspinatus, infraspinatus, subscapularis, biceps tendon, patellar tendon, Achilles tendon, plantar fascia, Baker's cyst. Spine: L1-L5, C1-C7, T1-T12, neural foramina, facet joint, thecal sac, cauda equina. Imaging: MRI, T1, T2, STIR, FLAIR, sagittal, axial, coronal. Pathology: bone marrow edema, osteochondral lesion, tendinopathy, tendinosis, bursitis, effusion, synovitis, SLAP tear, FAI, spondylosis, spondylolisthesis, spinal stenosis, myelopathy, disc herniation, disc protrusion, AVN, stress fracture. Grades: partial tear, full thickness tear, complete tear. mm, cm. Commands: period, comma, new line, new paragraph.`,
     description: "Passed to Groq Whisper API as a transcription prompt to improve medical terminology recognition",
     isActive: true,
   });
