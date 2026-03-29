@@ -15,6 +15,21 @@ import type { TemplateSection } from "@shared/schema";
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
 
+// Returns true only if the WAV buffer contains audio with enough energy to be speech.
+// WAV PCM data starts at byte 44 (standard header). RMS threshold ~1% of full scale.
+function wavHasVoice(wavBuffer: Buffer, rmsThreshold = 0.01): boolean {
+  const HEADER = 44;
+  if (wavBuffer.length <= HEADER + 2) return false;
+  let sumSq = 0;
+  let count = 0;
+  for (let i = HEADER; i < wavBuffer.length - 1; i += 2) {
+    const sample = wavBuffer.readInt16LE(i) / 32768;
+    sumSq += sample * sample;
+    count++;
+  }
+  return count > 0 && Math.sqrt(sumSq / count) > rmsThreshold;
+}
+
 async function convertToWav(inputBuffer: Buffer): Promise<Buffer> {
   const inputPath = join(tmpdir(), `input-${randomUUID()}`);
   const outputPath = join(tmpdir(), `output-${randomUUID()}.wav`);
@@ -224,6 +239,9 @@ export async function registerRoutes(
       let text: string;
       try {
         const wavBuffer = await convertToWav(audioFile.buffer);
+        if (!wavHasVoice(wavBuffer)) {
+          return res.json({ text: "" });
+        }
         text = await transcribeAudio(wavBuffer, whisperPrompt);
       } catch {
         text = await transcribeAudioRaw(audioFile.buffer, audioFile.mimetype || "audio/webm", whisperPrompt);
